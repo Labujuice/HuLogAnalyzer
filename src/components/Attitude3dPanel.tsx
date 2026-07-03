@@ -17,28 +17,49 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const droneRef = useRef<THREE.Group | null>(null);
-  const propsRef = useRef<THREE.Mesh[]>([]); // Propellers to spin
+  const fullPathLineRef = useRef<THREE.Line | null>(null);
+  const activePathLineRef = useRef<THREE.Line | null>(null);
+  const activeGeomRef = useRef<THREE.BufferGeometry | null>(null);
 
-  // Find attitude topic: standard vehicle_attitude
+  // Camera angles & zoom
+  const cameraTheta = useRef<number>(Math.PI / 4);
+  const cameraPhi = useRef<number>(Math.PI / 3);
+  const cameraRadius = useRef<number>(6);
+
+  // Drag state
+  const isDragging = useRef<boolean>(false);
+  const lastMouseX = useRef<number>(0);
+  const lastMouseY = useRef<number>(0);
+
+  // Find topics
   const attTopic = state.summary?.topics.find(
     t => t.name === 'vehicle_attitude' || t.name.includes('vehicle_attitude')
+  );
+  const posTopic = state.summary?.topics.find(
+    t => t.name === 'vehicle_local_position' || t.name.includes('vehicle_local_position')
   );
 
   const [hasAttitude, setHasAttitude] = useState<boolean>(!!attTopic);
 
-  // Request attitude topic data if not loaded
+  // Request topic data if not loaded
   useEffect(() => {
     if (attTopic) {
       const key = `${attTopic.name}:${attTopic.multiId}`;
       if (!state.topicCache[key]) {
-        // Request all q fields
         const qFields = attTopic.fields.filter(f => f.startsWith('q['));
         requestTopicData(attTopic.name, attTopic.multiId, qFields.length > 0 ? qFields : attTopic.fields);
       }
     } else {
       setHasAttitude(false);
     }
-  }, [attTopic, state.topicCache, requestTopicData]);
+
+    if (posTopic) {
+      const key = `${posTopic.name}:${posTopic.multiId}`;
+      if (!state.topicCache[key]) {
+        requestTopicData(posTopic.name, posTopic.multiId, ['x', 'y', 'z']);
+      }
+    }
+  }, [attTopic, posTopic, state.topicCache, requestTopicData]);
 
   // Interpolate Roll, Pitch, Yaw from quaternion in state cache
   const getAttitudeAngles = useCallback((): { roll: number; pitch: number; yaw: number } | null => {
@@ -47,14 +68,12 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     const data = state.topicCache[key];
     if (!data) return null;
 
-    // Standard PX4 uses q[0] (w), q[1] (x), q[2] (y), q[3] (z)
     const q0Arr = data.fields['q[0]'];
     const q1Arr = data.fields['q[1]'];
     const q2Arr = data.fields['q[2]'];
     const q3Arr = data.fields['q[3]'];
 
     if (!q0Arr || !q1Arr || !q2Arr || !q3Arr) {
-      // Fallback: check if they are named q_w, q_x, q_y, q_z
       const qw = data.fields['q_w'] || data.fields['q.w'] || data.fields['q_0'];
       const qx = data.fields['q_x'] || data.fields['q.x'] || data.fields['q_1'];
       const qy = data.fields['q_y'] || data.fields['q.y'] || data.fields['q_2'];
@@ -77,26 +96,64 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     return quatToEuler(q0, q1, q2, q3);
   }, [attTopic, state.topicCache, currentTimeUs]);
 
+  // Interpolate Position from local position in state cache
+  const getPosition = useCallback((): { x: number; y: number; z: number; points: THREE.Vector3[] } | null => {
+    if (!posTopic) return null;
+    const key = `${posTopic.name}:${posTopic.multiId}`;
+    const data = state.topicCache[key];
+    if (!data) return null;
+
+    const xArr = data.fields['x'];
+    const yArr = data.fields['y'];
+    const zArr = data.fields['z'];
+    if (!xArr || !yArr || !zArr) return null;
+
+    // 起飛點為原點 (減去第一點的數值)
+    const startX = xArr[0] ?? 0;
+    const startY = yArr[0] ?? 0;
+    const startZ = zArr[0] ?? 0;
+
+    const xVal = interpolateAt(data.timestamps, xArr, currentTimeUs);
+    const yVal = interpolateAt(data.timestamps, yArr, currentTimeUs);
+    const zVal = interpolateAt(data.timestamps, zArr, currentTimeUs);
+
+    // NED 轉 WebGL 座標系映射
+    const currentPos = {
+      x: yVal - startY,    // East -> WebGL X
+      y: -(zVal - startZ), // Down -> WebGL Y (高度向上)
+      z: -(xVal - startX), // North -> WebGL Z (後退)
+    };
+
+    // 建立整條飛行軌跡點
+    const points: THREE.Vector3[] = [];
+    for (let i = 0; i < data.timestamps.length; i++) {
+      const px = yArr[i] - startY;
+      const py = -(zArr[i] - startZ);
+      const pz = -(xArr[i] - startX);
+      points.push(new THREE.Vector3(px, py, pz));
+    }
+
+    return { ...currentPos, points };
+  }, [posTopic, state.topicCache, currentTimeUs]);
+
   // Setup Three.js Scene
   useEffect(() => {
     if (!mountRef.current || !hasAttitude) return;
 
-    const width = mountRef.current.clientWidth;
-    const height = mountRef.current.clientHeight;
+    const container = mountRef.current;
+    const width = container.clientWidth;
+    const height = container.clientHeight;
 
     // 1. Scene & Renderer
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#0a0f1d'); // Sleek dark bg
+    scene.background = new THREE.Color('#0a0f1d');
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    camera.position.set(4, 3, 5);
-    camera.lookAt(0, 0, 0);
-
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 500);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
-    mountRef.current.appendChild(renderer.domElement);
+    container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
     // 2. Lights
@@ -104,20 +161,20 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     scene.add(ambientLight);
 
     const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight1.position.set(5, 10, 7);
+    dirLight1.position.set(5, 15, 7);
     scene.add(dirLight1);
 
-    const dirLight2 = new THREE.DirectionalLight(0x3b82f6, 0.4); // Accent blue light
+    const dirLight2 = new THREE.DirectionalLight(0x3b82f6, 0.4);
     dirLight2.position.set(-5, -5, -5);
     scene.add(dirLight2);
 
     // 3. Grid Ground & Axes
-    const gridHelper = new THREE.GridHelper(20, 20, '#1e293b', '#0f172a');
-    gridHelper.position.y = -1.5;
+    const gridHelper = new THREE.GridHelper(50, 50, '#1e293b', '#0f172a');
+    gridHelper.position.y = -0.01; // 略低於起飛高度，防閃爍
     scene.add(gridHelper);
 
-    const axesHelper = new THREE.AxesHelper(1.5);
-    axesHelper.position.y = -1.49;
+    const axesHelper = new THREE.AxesHelper(2);
+    axesHelper.position.set(0, 0, 0);
     scene.add(axesHelper);
 
     // 4. Build Custom 3D Drone Model
@@ -125,133 +182,197 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     scene.add(droneGroup);
     droneRef.current = droneGroup;
 
-    // Center Hub (Futuristic Octagon/Box)
-    const hubGeom = new THREE.BoxGeometry(0.8, 0.15, 0.8);
+    // Center Hub
+    const hubGeom = new THREE.BoxGeometry(0.5, 0.1, 0.5);
     const bodyMat = new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.4, metalness: 0.8 });
     const hub = new THREE.Mesh(hubGeom, bodyMat);
     droneGroup.add(hub);
 
-    // Nose Cone (Direction indicator - Front is +Z in NED, so we place it on +Z or -Z)
-    // In our WebGL mapping: Forward is -Z (aligned with camera looking at center)
-    const noseGeom = new THREE.ConeGeometry(0.2, 0.4, 4);
-    noseGeom.rotateX(-Math.PI / 2); // point forward (-Z)
-    const noseMat = new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.5 }); // Red nose
+    // Nose Cone
+    const noseGeom = new THREE.ConeGeometry(0.12, 0.25, 4);
+    noseGeom.rotateX(-Math.PI / 2);
+    const noseMat = new THREE.MeshStandardMaterial({ color: '#ef4444' });
     const nose = new THREE.Mesh(noseGeom, noseMat);
-    nose.position.set(0, 0, -0.5);
+    nose.position.set(0, 0, -0.3);
     droneGroup.add(nose);
 
-    // LED Eyes
-    const eyeGeom = new THREE.SphereGeometry(0.08, 8, 8);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: '#ef4444' });
-    const eyeL = new THREE.Mesh(eyeGeom, eyeMat);
-    eyeL.position.set(-0.25, 0.05, -0.42);
-    const eyeR = new THREE.Mesh(eyeGeom, eyeMat);
-    eyeR.position.set(0.25, 0.05, -0.42);
-    droneGroup.add(eyeL);
-    droneGroup.add(eyeR);
-
-    // Quadcopter Arms (X Layout)
-    const armGeom = new THREE.CylinderGeometry(0.04, 0.04, 1.2);
-    armGeom.rotateX(Math.PI / 2); // lay flat
-
-    // Front-Left to Back-Right Arm
+    // Arms
+    const armGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.8);
+    armGeom.rotateX(Math.PI / 2);
     const arm1 = new THREE.Mesh(armGeom, bodyMat);
     arm1.rotation.y = Math.PI / 4;
     droneGroup.add(arm1);
-
-    // Front-Right to Back-Left Arm
     const arm2 = new THREE.Mesh(armGeom, bodyMat);
     arm2.rotation.y = -Math.PI / 4;
     droneGroup.add(arm2);
 
     // Motors & Props
-    const motorGeom = new THREE.CylinderGeometry(0.08, 0.08, 0.15);
+    const motorGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.08);
     const motorMat = new THREE.MeshStandardMaterial({ color: '#1e293b', metalness: 0.9 });
-    const propGeom = new THREE.BoxGeometry(0.5, 0.01, 0.04);
-    const propMat = new THREE.MeshStandardMaterial({ color: '#94a3b8', transparent: true, opacity: 0.7 });
+    const propGeom = new THREE.BoxGeometry(0.3, 0.005, 0.02);
+    const propMat = new THREE.MeshStandardMaterial({ color: '#94a3b8', transparent: true, opacity: 0.8 });
 
-    const armLength = 0.6;
-    const angles = [
-      Math.PI / 4,       // Back-Right (FR)
-      -Math.PI / 4,      // Back-Left (FL)
-      (3 * Math.PI) / 4,  // Front-Right (BR)
-      (-3 * Math.PI) / 4, // Front-Left (BL)
-    ];
-
+    const armLength = 0.4;
+    const angles = [Math.PI / 4, -Math.PI / 4, (3 * Math.PI) / 4, (-3 * Math.PI) / 4];
     const props: THREE.Mesh[] = [];
 
     angles.forEach((angle, idx) => {
       const x = Math.sin(angle) * armLength;
       const z = Math.cos(angle) * armLength;
-
-      // Motor
       const motor = new THREE.Mesh(motorGeom, motorMat);
-      motor.position.set(x, 0.1, z);
+      motor.position.set(x, 0.06, z);
       droneGroup.add(motor);
 
-      // Propeller
       const prop = new THREE.Mesh(propGeom, propMat);
-      prop.position.set(x, 0.18, z);
+      prop.position.set(x, 0.11, z);
       droneGroup.add(prop);
       props.push(prop);
     });
 
-    propsRef.current = props;
+    // 5. Initialize Path Lines
+    // 背景全局虛線/淡線飛行軌跡
+    const fullGeom = new THREE.BufferGeometry();
+    const fullMat = new THREE.LineBasicMaterial({
+      color: '#3b82f6',
+      transparent: true,
+      opacity: 0.2,
+    });
+    const fullPathLine = new THREE.Line(fullGeom, fullMat);
+    scene.add(fullPathLine);
+    fullPathLineRef.current = fullPathLine;
 
-    // 5. Animation loop
+    // 播放中已飛過的發光航線
+    const activeGeom = new THREE.BufferGeometry();
+    const activeMat = new THREE.LineBasicMaterial({
+      color: '#06b6d4', // Cyan 發光色
+      linewidth: 2,
+    });
+    const activePathLine = new THREE.Line(activeGeom, activeMat);
+    scene.add(activePathLine);
+    activePathLineRef.current = activePathLine;
+    activeGeomRef.current = activeGeom;
+
+    // 6. Animation loop
     let animId: number;
     let propRot = 0;
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
-      // Spin propellers when playing
+      // 旋轉螺旋槳
       if (state.playback.isPlaying) {
         propRot += 0.25 * state.playback.speedMultiplier;
         props.forEach((p, idx) => {
-          // Alternate spin directions
           p.rotation.y = idx % 2 === 0 ? propRot : -propRot;
         });
       }
 
-      // Render
+      // 相機跟隨無人機 (位置平滑插值 Lerp)
+      const dronePos = droneGroup.position;
+      const targetX = dronePos.x + cameraRadius.current * Math.sin(cameraPhi.current) * Math.sin(cameraTheta.current);
+      const targetY = dronePos.y + cameraRadius.current * Math.cos(cameraPhi.current);
+      const targetZ = dronePos.z + cameraRadius.current * Math.sin(cameraPhi.current) * Math.cos(cameraTheta.current);
+
+      camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.15);
+      camera.lookAt(dronePos);
+
       if (rendererRef.current && sceneRef.current) {
         rendererRef.current.render(sceneRef.current, camera);
       }
     };
     animate();
 
-    // 6. Resize Observer
+    // 7. 註冊滾輪縮放 (綁定在容器上以防止警告)
+    const onWheelEvent = (e: WheelEvent) => {
+      e.preventDefault();
+      cameraRadius.current = Math.max(1.5, Math.min(80, cameraRadius.current + e.deltaY * 0.01));
+    };
+    container.addEventListener('wheel', onWheelEvent, { passive: false });
+
+    // 8. Resize Observer
     const ro = new ResizeObserver(() => {
-      if (!mountRef.current || !rendererRef.current) return;
-      const w = mountRef.current.clientWidth;
-      const h = mountRef.current.clientHeight;
+      if (!rendererRef.current) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
     });
-    ro.observe(mountRef.current);
+    ro.observe(container);
 
-    // Cleanup
     return () => {
       cancelAnimationFrame(animId);
       ro.disconnect();
-      if (rendererRef.current && mountRef.current) {
-        mountRef.current.removeChild(rendererRef.current.domElement);
+      container.removeEventListener('wheel', onWheelEvent);
+      if (rendererRef.current && container.contains(rendererRef.current.domElement)) {
+        container.removeChild(rendererRef.current.domElement);
       }
       scene.clear();
     };
   }, [hasAttitude, state.playback.isPlaying]);
 
-  // Sync Drone Rotation with Playback Time
+  // Sync Drone Position, Rotation & Path lines
   useEffect(() => {
     if (!droneRef.current) return;
+
+    // 1. 更新姿態旋轉
     const angles = getAttitudeAngles();
     if (angles) {
-      // NED to WebGL rotation mapping
       droneRef.current.rotation.set(angles.pitch, -angles.yaw, -angles.roll, 'YXZ');
     }
-  }, [currentTimeUs, getAttitudeAngles]);
+
+    // 2. 更新位置與軌跡線
+    const pos = getPosition();
+    if (pos) {
+      droneRef.current.position.set(pos.x, pos.y, pos.z);
+
+      // 初始化背景全局虛線軌跡
+      if (fullPathLineRef.current && fullPathLineRef.current.geometry.getAttribute('position') === undefined) {
+        fullPathLineRef.current.geometry.setFromPoints(pos.points);
+      }
+
+      // 更新目前已飛過的時間點軌跡點 (二分搜尋找最接近目前播放時間點的索引)
+      if (activeGeomRef.current && posTopic) {
+        const key = `${posTopic.name}:${posTopic.multiId}`;
+        const data = state.topicCache[key];
+        if (data) {
+          let lo = 0;
+          let hi = data.timestamps.length - 1;
+          while (lo < hi) {
+            const mid = (lo + hi) >>> 1;
+            if (data.timestamps[mid] < currentTimeUs) lo = mid + 1;
+            else hi = mid;
+          }
+          const activePoints = pos.points.slice(0, lo + 1);
+          activeGeomRef.current.setFromPoints(activePoints);
+        }
+      }
+    }
+  }, [currentTimeUs, getAttitudeAngles, getPosition, posTopic, state.topicCache]);
+
+  // 滑鼠拖曳旋轉視角控制
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0) {
+      isDragging.current = true;
+      lastMouseX.current = e.clientX;
+      lastMouseY.current = e.clientY;
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current) return;
+    const deltaX = e.clientX - lastMouseX.current;
+    const deltaY = e.clientY - lastMouseY.current;
+    lastMouseX.current = e.clientX;
+    lastMouseY.current = e.clientY;
+
+    cameraTheta.current -= deltaX * 0.006;
+    cameraPhi.current = Math.max(0.05, Math.min(Math.PI / 2 - 0.02, cameraPhi.current - deltaY * 0.006));
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
+  };
 
   if (!hasAttitude) {
     return (
@@ -264,8 +385,15 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   }
 
   return (
-    <div className={styles.root}>
-      <div className={styles.panelTitle}>3D 實時姿態觀測器</div>
+    <div
+      className={styles.root}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+      style={{ cursor: isDragging.current ? 'grabbing' : 'grab' }}
+    >
+      <div className={styles.panelTitle}>3D 實時姿態與航線軌跡觀測器</div>
       <div ref={mountRef} className={styles.canvasContainer} />
     </div>
   );
@@ -274,7 +402,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 // ─── 尤拉角四元數轉換工具 ──────────────────────────────────────────────────────
 
 function quatToEuler(q0: number, q1: number, q2: number, q3: number) {
-  // PX4 quaternion order is (w=q0, x=q1, y=q2, z=q3)
   const roll = Math.atan2(2 * (q0 * q1 + q2 * q3), 1 - 2 * (q1 * q1 + q2 * q2));
   const pitch = Math.asin(Math.max(-1, Math.min(1, 2 * (q0 * q2 - q3 * q1))));
   const yaw = Math.atan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2 * q2 + q3 * q3));
