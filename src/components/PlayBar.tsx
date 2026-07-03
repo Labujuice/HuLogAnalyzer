@@ -19,27 +19,37 @@ export function PlayBar() {
   const duration = endTimeUs - startTimeUs;
   const progress = duration > 0 ? (currentTimeUs - startTimeUs) / duration : 0;
 
+  const playbackRef = useRef(playback);
+  playbackRef.current = playback;
+
   const currentTimeRef = useRef<number>(0);
 
   // RAF 驅動播放
   const tick = useCallback((now: number) => {
+    const p = playbackRef.current;
+    if (!p.isPlaying) return;
+
     if (lastTsRef.current === 0) lastTsRef.current = now;
     const dtMs = now - lastTsRef.current;
     lastTsRef.current = now;
 
-    currentTimeRef.current = Math.min(
-      currentTimeRef.current + dtMs * 1000 * playback.speedMultiplier,
-      playback.endTimeUs
-    );
+    // 若外部（如進度條點擊）時間發生較大改變（大於 100ms），同步播放計時器
+    const diffUs = Math.abs(currentTimeRef.current - p.currentTimeUs);
+    if (diffUs > 100000) {
+      currentTimeRef.current = p.currentTimeUs;
+    }
 
-    if (currentTimeRef.current >= playback.endTimeUs) {
-      setPlayback({ isPlaying: false, currentTimeUs: playback.endTimeUs });
+    const nextTimeUs = currentTimeRef.current + dtMs * 1000 * p.speedMultiplier;
+
+    if (nextTimeUs >= p.endTimeUs) {
+      setPlayback({ isPlaying: false, currentTimeUs: p.endTimeUs });
       return;
     }
 
-    setPlayback({ currentTimeUs: currentTimeRef.current });
+    currentTimeRef.current = nextTimeUs;
+    setPlayback({ currentTimeUs: nextTimeUs });
     rafRef.current = requestAnimationFrame(tick);
-  }, [setPlayback, playback.speedMultiplier, playback.endTimeUs]);
+  }, [setPlayback]);
 
   useEffect(() => {
     if (isPlaying) {
