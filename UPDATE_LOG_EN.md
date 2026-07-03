@@ -41,3 +41,19 @@ This file is used to document and manage update items prior to every Merge Reque
     * Dynamically calculated Web Mercator home offsets and flight radius from GPS caches to asynchronously stitch a $3 \times 3$ grid of Google Satellite tiles (`lyrs=s`) centered at the takeoff location in the 3D viewer.
     * Added a "Satellite Ground" toggle button in the 3D panel's control overlay to allow users to switch backgrounds easily.
     * Introduced a ground track projection line and an interactive vertical plumb line that tracks drone altitude above the terrain. The lines dynamically adjust their heights based on the ULog's `dist_bottom` (ground distance sensor) field, and automatically project onto the flat takeoff plane ($Y = 0$) as a fallback.
+  * **🔺 2D Map UAV Triangle Pointer Icon (MapPanel)**:
+    * Standardized the 2D map drone icon as a black-bordered, red-filled isosceles triangle pointer following aerospace visualization specifications.
+    * Corrected HTML layout bindings and CSS class name references for both the arrow and radar pulse effects, guaranteeing the icon maintains constant physical pixel dimensions (no scaling/distortions) during map zooming.
+  * **🏷️ 3D Body Frame FRD Axis Indicators (Attitude3dPanel)**:
+    * Programmed aviation-standard FRD (Forward-Right-Down) coordinate axes at the drone center.
+    * Assigned Red for Forward (local -Z axis), Green for Right (local +X axis), and Blue/Cyan for Down (local -Y axis).
+    * Created 2D Canvas-rendered 3D text sprites (F, R, D) with disabled depth testing placed at the tips of the arrows. They face the screen at all times to provide orientation readouts.
+  * **🛸 3D Multi-Vehicle Model Selector & Animations (Attitude3dPanel)**:
+    * Added a model selector dropdown menu to the 3D control overlay, allowing users to toggle between six recognizable vehicle meshes:
+      1. `X-type multirotor`: Features a central hub, crossing arms, red nose cone, and four transparent propellers that spin clockwise/counter-clockwise.
+      2. `Fixwing`: Features a detailed airplane body, red-tipped wings, tail fins, and a spinning front propeller blade.
+      3. `car`: Features an orange rover chassis, cabin glass, black bumpers, and four rolling rubber wheels.
+      4. `turtle`: Features a squashed turtle shell, green head, tiny tail, and four flippers that wiggle in a swimming motion.
+      5. `eagle`: Features a brown body, white head, yellow beak, and wing assemblies that dynamically flap up and down.
+      6. `kabibala`: Features a cute capybara cylinder body, boxy face, small ears, black eyes/snout, and four legs that jog back and forth.
+    * Used a `modelTypeRef` pointer to avoid React closure traps, ensuring smooth 60fps animations for all custom moving parts (spinning, rolling, flapping, wiggling) in the RAF render loop.

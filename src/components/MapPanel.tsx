@@ -177,10 +177,10 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     const droneIcon = L.divIcon({
       html: `
         <div class="${styles.droneMarkerWrap}">
-          <div class="${styles.radarPulse}"></div>
-          <div id="leaflet-drone-pointer" class="${styles.droneArrow}">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-              <path d="M12 2L2 22L12 17L22 22L12 2Z" />
+          <div class="${styles.droneMarkerPulse}"></div>
+          <div id="leaflet-drone-pointer" class="${styles.droneMarkerArrow}">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path d="M12 3L21 20H3L12 3Z" fill="#ef4444" stroke="#000000" stroke-width="2.5" stroke-linejoin="round" />
             </svg>
           </div>
         </div>
