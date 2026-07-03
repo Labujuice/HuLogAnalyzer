@@ -50,7 +50,7 @@ This file is used to document and manage update items prior to every Merge Reque
     * Created 2D Canvas-rendered 3D text sprites (F, R, D) with disabled depth testing placed at the tips of the arrows. They face the screen at all times to provide orientation readouts.
   * **🛸 3D Multi-Vehicle Model Selector & Animations (Attitude3dPanel)**:
     * Added a model selector dropdown menu to the 3D control overlay, allowing users to toggle between six recognizable vehicle meshes:
-      1. `X-type multirotor`: Features a central hub, two BoxGeometries crossed at 90 degrees to form the arm frame, a red nose cone, and four propellers. The propeller spin rate is dynamically scaled in real-time by interpolating the average of motor speed outputs (`actuator_outputs` or `actuator_motors`) in the log, simulating high-speed rotation during takeoff and slower rotation during hover or landing.
+      1. `X-type multirotor`: Features a compact central hub (16cm x 6cm x 16cm), two BoxGeometries crossed at 90 degrees to form the arm frame, a red nose cone, and four propellers. The propeller spin rate is dynamically scaled in real-time by interpolating the average of motor speed outputs (`actuator_outputs` or `actuator_motors`) in the log, simulating high-speed rotation during takeoff and slower rotation during hover or landing.
       2. `Fixwing`: Features a detailed airplane body, red-tipped wings, tail fins, and a spinning front propeller blade.
       3. `car`: Features an orange rover chassis, cabin glass, black bumpers, and four rolling rubber wheels.
       4. `turtle`: Features a squashed turtle shell, green head, tiny tail, and four flippers that wiggle in a swimming motion.

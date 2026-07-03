@@ -582,20 +582,20 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       const motorMat = new THREE.MeshStandardMaterial({ color: '#1e293b', metalness: 0.9 });
       const propMat = new THREE.MeshStandardMaterial({ color: '#94a3b8', transparent: true, opacity: 0.8 });
 
-      // 機身中心結構
-      const hubGeom = new THREE.BoxGeometry(0.5, 0.1, 0.5);
+      // 機身中心結構 (縮小為精簡比例：16cm x 6cm x 16cm)
+      const hubGeom = new THREE.BoxGeometry(0.16, 0.06, 0.16);
       const hub = new THREE.Mesh(hubGeom, bodyMat);
       drone.add(hub);
 
-      // 前端紅色機鼻 (Z = -0.3)
-      const noseGeom = new THREE.ConeGeometry(0.12, 0.25, 4);
+      // 前端紅色機鼻 (縮小並貼近機身 Z = -0.1)
+      const noseGeom = new THREE.ConeGeometry(0.06, 0.15, 4);
       noseGeom.rotateX(-Math.PI / 2);
       const nose = new THREE.Mesh(noseGeom, noseMat);
-      nose.position.set(0, 0, -0.3);
+      nose.position.set(0, 0, -0.1);
       drone.add(nose);
 
-      // 使用兩個長方體 (BoxGeometry) 交叉 90 度拼湊出 X 型機臂
-      const armGeom = new THREE.BoxGeometry(0.05, 0.025, 0.85);
+      // 使用兩個長方體 (BoxGeometry) 呈 90 度垂直交叉拼湊出 X 型機臂 (寬3.5cm, 高1.5cm, 長85cm)
+      const armGeom = new THREE.BoxGeometry(0.035, 0.015, 0.85);
       
       const arm1 = new THREE.Mesh(armGeom, bodyMat);
       arm1.rotation.y = Math.PI / 4; // 45度
@@ -606,8 +606,8 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       drone.add(arm2);
 
       // 螺旋槳與馬達組件
-      const motorGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.08);
-      const propGeom = new THREE.BoxGeometry(0.3, 0.005, 0.025);
+      const motorGeom = new THREE.CylinderGeometry(0.03, 0.03, 0.06);
+      const propGeom = new THREE.BoxGeometry(0.38, 0.003, 0.02); // 螺旋槳增長變薄 (直徑 38cm)
 
       const armLength = 0.4;
       const angles = [Math.PI / 4, -Math.PI / 4, (3 * Math.PI) / 4, (-3 * Math.PI) / 4];
