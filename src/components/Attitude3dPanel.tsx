@@ -16,6 +16,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const { state, requestTopicData } = useApp();
   const mountRef = useRef<HTMLDivElement>(null);
 
+  // Trigger state when Three.js scene is initialized
+  const [sceneReady, setSceneReady] = useState<boolean>(false);
+
   // Three.js instances
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -42,6 +45,19 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   useEffect(() => {
     modelTypeRef.current = modelType;
   }, [modelType]);
+
+  // Use refs to bypass stale closure bugs in the Three.js rendering loop
+  const isPlayingRef = useRef<boolean>(state.playback.isPlaying);
+  const speedMultiplierRef = useRef<number>(state.playback.speedMultiplier);
+  useEffect(() => {
+    isPlayingRef.current = state.playback.isPlaying;
+    speedMultiplierRef.current = state.playback.speedMultiplier;
+  }, [state.playback.isPlaying, state.playback.speedMultiplier]);
+
+  const topicCacheRef = useRef(state.topicCache);
+  useEffect(() => {
+    topicCacheRef.current = state.topicCache;
+  }, [state.topicCache]);
 
   // 動態旋轉/擺動零件
   const animatedMeshesRef = useRef<THREE.Object3D[]>([]);
@@ -126,7 +142,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const getAttitudeAnglesAt = useCallback((timeUs: number): { roll: number; pitch: number; yaw: number } | null => {
     if (!attTopic) return null;
     const key = `${attTopic.name}:${attTopic.multiId}`;
-    const data = state.topicCache[key];
+    const data = topicCacheRef.current[key]; // Read from Ref
     if (!data) return null;
 
     const q0Arr = data.fields['q[0]'];
@@ -155,13 +171,13 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     const q3 = interpolateAt(data.timestamps, q3Arr, timeUs);
 
     return quatToEuler(q0, q1, q2, q3);
-  }, [attTopic, state.topicCache]);
+  }, [attTopic]);
 
   // Interpolate Position from local position in state cache
   const getPositionAt = useCallback((timeUs: number): { x: number; y: number; z: number; points: THREE.Vector3[] } | null => {
     if (!posTopic) return null;
     const key = `${posTopic.name}:${posTopic.multiId}`;
-    const data = state.topicCache[key];
+    const data = topicCacheRef.current[key]; // Read from Ref
     if (!data) return null;
 
     const xArr = data.fields['x'];
@@ -195,13 +211,13 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     }
 
     return { ...currentPos, points };
-  }, [posTopic, state.topicCache]);
+  }, [posTopic]);
 
   // 獲取起飛點 GPS 座標作為原點
   const getGpsHome = useCallback((): { lat: number; lon: number } | null => {
     if (!gpsTopic) return null;
     const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
-    const data = state.topicCache[key];
+    const data = topicCacheRef.current[key]; // Read from Ref
     if (!data) return null;
 
     const latArr = data.fields['lat'];
@@ -219,13 +235,13 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       }
     }
     return null;
-  }, [gpsTopic, state.topicCache]);
+  }, [gpsTopic]);
 
   // 獲取馬達輸出轉速平均值（對應螺旋槳轉動速度比例）
   const getAverageMotorSpeedAt = useCallback((timeUs: number): number => {
     if (!motorTopic) return 1.0;
     const key = `${motorTopic.name}:${motorTopic.multiId}`;
-    const data = state.topicCache[key];
+    const data = topicCacheRef.current[key]; // Read from Ref
     if (!data) return 1.0;
 
     const fields = Object.keys(data.fields);
@@ -253,7 +269,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     }
     // 若為標準 0.0 ~ 1.0
     return Math.max(0.1, avg * 2.5);
-  }, [motorTopic, state.topicCache]);
+  }, [motorTopic]);
 
   // Setup Three.js Scene
   useEffect(() => {
@@ -362,12 +378,12 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 
       const currentModelType = modelTypeRef.current;
 
-      // 旋轉螺旋槳 / 動態部位
-      if (state.playback.isPlaying) {
+      // 旋轉螺旋槳 / 動態部位 (Read from refs to avoid stale closure)
+      if (isPlayingRef.current) {
         const timeUs = timePublisher.getTime();
         const motorSpeed = getAverageMotorSpeedAt(timeUs); // 獲取平均馬達輸出轉速
         
-        propRot += 0.25 * state.playback.speedMultiplier * motorSpeed;
+        propRot += 0.25 * speedMultiplierRef.current * motorSpeed;
         const meshes = animatedMeshesRef.current;
 
         if (currentModelType === 'multirotor') {
@@ -421,6 +437,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     };
     animate();
 
+    // Notify model builder that scene is ready
+    setSceneReady(true);
+
     // 8. 註冊滾輪縮放
     const onWheelEvent = (e: WheelEvent) => {
       e.preventDefault();
@@ -448,6 +467,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         container.removeChild(renderer.domElement);
       }
       rendererRef.current = null;
+      setSceneReady(false);
     };
   }, [hasAttitude, getAverageMotorSpeedAt]);
 
@@ -518,12 +538,12 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         satelliteGroupRef.current.add(mesh);
       }
     }
-  }, [state.topicCache, gpsTopic, getGpsHome, getPositionAt]);
+  }, [gpsTopic, getGpsHome, getPositionAt]);
 
   // Rebuild Drone Meshes, FRD Coordinate Indicators, and Labels
   useEffect(() => {
     const drone = droneRef.current;
-    if (!drone) return;
+    if (!drone || !sceneReady) return; // Wait until scene setup is complete
 
     while (drone.children.length > 0) {
       drone.remove(drone.children[0]);
@@ -616,11 +636,11 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         const z = Math.cos(angle) * armLength;
         
         const motor = new THREE.Mesh(motorGeom, motorMat);
-        motor.position.set(x, 0.06, z);
+        motor.position.set(x, 0.04, z);
         drone.add(motor);
 
         const prop = new THREE.Mesh(propGeom, propMat);
-        prop.position.set(x, 0.11, z);
+        prop.position.set(x, 0.075, z);
         drone.add(prop);
         
         animatedMeshesRef.current.push(prop); // 用於馬達轉速旋擬動畫
@@ -856,7 +876,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         animatedMeshesRef.current.push(leg);
       });
     }
-  }, [modelType]);
+  }, [modelType, sceneReady]);
 
   // Sync Att & Pos via timePublisher Emitter
   useEffect(() => {
@@ -883,7 +903,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         // 3. Update paths
         if (posTopic) {
           const key = `${posTopic.name}:${posTopic.multiId}`;
-          const posData = state.topicCache[key];
+          const posData = topicCacheRef.current[key]; // Read from Ref
           
           if (posData) {
             let lo = 0;
@@ -958,7 +978,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     updateAttitudeAndPosition(timePublisher.getTime());
 
     return unsubscribe;
-  }, [getAttitudeAnglesAt, getPositionAt, posTopic, state.topicCache]);
+  }, [getAttitudeAnglesAt, getPositionAt, posTopic]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;

@@ -56,4 +56,5 @@ This file is used to document and manage update items prior to every Merge Reque
       4. `turtle`: Features a squashed turtle shell, green head, tiny tail, and four flippers that wiggle in a swimming motion.
       5. `eagle`: Features a brown body, white head, yellow beak, and wing assemblies that dynamically flap up and down.
       6. `kabibala`: Features a cute capybara cylinder body, boxy face, small ears, black eyes/snout, and four legs that jog back and forth.
-    * Used a `modelTypeRef` pointer to avoid React closure traps, ensuring smooth 60fps animations for all custom moving parts (spinning, rolling, flapping, wiggling) in the RAF render loop.
+    * Utilized `modelTypeRef`, `isPlayingRef`, and `speedMultiplierRef` to bypass React stale closure snapshots, fixing the issue where propellers remained static during playback.
+    * Added a `sceneReady` state synchronization check inside the model builder `useEffect` dependencies, correcting the rendering issue where the drone model sometimes failed to render or disappeared on initial 3D panel mount.
