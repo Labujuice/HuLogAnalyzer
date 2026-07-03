@@ -35,8 +35,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const verticalLineRef = useRef<THREE.Line | null>(null);
   const verticalGeomRef = useRef<THREE.BufferGeometry | null>(null);
 
-  // 衛星地圖貼圖群組
+  // 衛星地圖貼圖群組與載入防重置守衛
   const satelliteGroupRef = useRef<THREE.Group | null>(null);
+  const loadedHomeKeyRef = useRef<string>('');
   const [showSatellite, setShowSatellite] = useState<boolean>(true); // 預設啟用
 
   // 3D 載具外型選擇
@@ -478,19 +479,25 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     }
   }, [showSatellite]);
 
-  // Load Satellite Ground Texture Async
+  // Load Satellite Ground Texture Async (Depends on state.topicCache to load when requested asynchronous data resolves)
   useEffect(() => {
     if (!sceneRef.current || !satelliteGroupRef.current) return;
-
-    while (satelliteGroupRef.current.children.length > 0) {
-      satelliteGroupRef.current.remove(satelliteGroupRef.current.children[0]);
-    }
 
     const home = getGpsHome();
     if (!home) return;
 
     const localPoints = getPositionAt(0)?.points ?? [];
     if (localPoints.length === 0) return;
+
+    // 用起飛經緯度做為 Key，防範快取更新時的重複瓦片重構與下載
+    const homeKey = `${home.lat.toFixed(5)},${home.lon.toFixed(5)}`;
+    if (loadedHomeKeyRef.current === homeKey) return;
+    loadedHomeKeyRef.current = homeKey;
+
+    // 清空舊瓦片
+    while (satelliteGroupRef.current.children.length > 0) {
+      satelliteGroupRef.current.remove(satelliteGroupRef.current.children[0]);
+    }
 
     let maxRadius = 100;
     localPoints.forEach((pt) => {
@@ -538,7 +545,114 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         satelliteGroupRef.current.add(mesh);
       }
     }
-  }, [gpsTopic, getGpsHome, getPositionAt]);
+  }, [gpsTopic, posTopic, state.topicCache, getGpsHome, getPositionAt]);
+
+  // Sync Att & Pos via timePublisher Emitter
+  useEffect(() => {
+    const updateAttitudeAndPosition = (timeUs: number) => {
+      const drone = droneRef.current;
+      if (!drone) return;
+
+      // 1. Update Attitude
+      const att = getAttitudeAnglesAt(timeUs);
+      if (att) {
+        drone.rotation.set(att.pitch, -att.yaw, -att.roll, 'YXZ');
+      }
+
+      // 2. Update Position
+      const pos = getPositionAt(timeUs);
+      if (pos) {
+        drone.position.set(pos.x, pos.y, pos.z);
+
+        if (isFollowingRef.current) {
+          cameraTargetRef.current.copy(drone.position);
+        }
+
+        // 3. Update paths
+        if (posTopic) {
+          const key = `${posTopic.name}:${posTopic.multiId}`;
+          const posData = topicCacheRef.current[key];
+          
+          if (posData) {
+            let lo = 0;
+            let hi = posData.timestamps.length - 1;
+            while (lo < hi) {
+              const mid = (lo + hi) >>> 1;
+              if (posData.timestamps[mid] < timeUs) lo = mid + 1;
+              else hi = mid;
+            }
+
+            // 3D 已飛過的路徑
+            if (activeGeomRef.current) {
+              const activePoints = pos.points.slice(0, lo + 1);
+              activeGeomRef.current.setFromPoints(activePoints);
+              activeGeomRef.current.computeBoundingSphere();
+              activeGeomRef.current.computeBoundingBox();
+            }
+
+            // 3D 尚未飛過的路徑
+            if (remainingGeomRef.current) {
+              const remainingPoints = pos.points.slice(lo);
+              remainingGeomRef.current.setFromPoints(remainingPoints);
+              remainingGeomRef.current.computeBoundingSphere();
+              remainingGeomRef.current.computeBoundingBox();
+            }
+
+            // 4. 地面投影軌跡與實時地貌資料解析
+            if (groundGeomRef.current) {
+              const distBottomArr = posData.fields['dist_bottom'];
+              const groundPoints: THREE.Vector3[] = [];
+
+              for (let i = 0; i <= lo; i++) {
+                const pt = pos.points[i];
+                let groundY = 0;
+                if (distBottomArr && distBottomArr[i] !== undefined && distBottomArr[i] > 0 && distBottomArr[i] < 1000) {
+                  groundY = pt.y - distBottomArr[i];
+                }
+                groundPoints.push(new THREE.Vector3(pt.x, groundY, pt.z));
+              }
+
+              groundGeomRef.current.setFromPoints(groundPoints);
+              groundGeomRef.current.computeBoundingSphere();
+              groundGeomRef.current.computeBoundingBox();
+            }
+
+            // 5. 實時垂直垂線 (Plumb Line)
+            if (verticalGeomRef.current) {
+              const distBottomArr = posData.fields['dist_bottom'];
+              let groundY = 0;
+              if (distBottomArr) {
+                const currentDistBottom = interpolateAt(posData.timestamps, distBottomArr, timeUs);
+                if (currentDistBottom > 0 && currentDistBottom < 1000) {
+                  groundY = pos.y - currentDistBottom;
+                }
+              }
+
+              const verticalPoints = [
+                new THREE.Vector3(pos.x, pos.y, pos.z),
+                new THREE.Vector3(pos.x, groundY, pos.z),
+              ];
+              verticalGeomRef.current.setFromPoints(verticalPoints);
+              verticalGeomRef.current.computeBoundingSphere();
+              verticalGeomRef.current.computeBoundingBox();
+            }
+          }
+        }
+      }
+    };
+
+    const unsubscribe = timePublisher.subscribe(updateAttitudeAndPosition);
+    updateAttitudeAndPosition(timePublisher.getTime());
+
+    return unsubscribe;
+  }, [getAttitudeAnglesAt, getPositionAt, posTopic]);
+
+  // Trigger a manual time broadcast when topic cache changes to snap drone positions immediately (e.g. on initial data load)
+  useEffect(() => {
+    if (droneRef.current) {
+      timePublisher.setTime(timePublisher.getTime());
+    }
+  }, [state.topicCache]);
 
   // Rebuild Drone Meshes, FRD Coordinate Indicators, and Labels
   useEffect(() => {
@@ -550,7 +664,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     }
 
     // 1. 標示體座標系 FRD 的向量箭頭 (Forward-Right-Down)
-    // F (Forward): 指向機頭，在 WebGL NED 坐標中為 -Z，紅色
     const arrowF = new THREE.ArrowHelper(
       new THREE.Vector3(0, 0, -1),
       new THREE.Vector3(0, 0, 0),
@@ -564,7 +677,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     labelF.position.set(0, 0.15, -1.35);
     drone.add(labelF);
 
-    // R (Right): 指向機身右翼，在 WebGL NED 坐標中為 +X，綠色
     const arrowR = new THREE.ArrowHelper(
       new THREE.Vector3(1, 0, 0),
       new THREE.Vector3(0, 0, 0),
@@ -578,7 +690,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     labelR.position.set(1.35, 0.15, 0);
     drone.add(labelR);
 
-    // D (Down): 指向機腹下方，在 WebGL NED 坐標中為 -Y，藍色
     const arrowD = new THREE.ArrowHelper(
       new THREE.Vector3(0, -1, 0),
       new THREE.Vector3(0, 0, 0),
@@ -877,108 +988,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       });
     }
   }, [modelType, sceneReady]);
-
-  // Sync Att & Pos via timePublisher Emitter
-  useEffect(() => {
-    const updateAttitudeAndPosition = (timeUs: number) => {
-      const drone = droneRef.current;
-      if (!drone) return;
-
-      // 1. Update Attitude
-      const att = getAttitudeAnglesAt(timeUs);
-      if (att) {
-        // NED: Pitch (x), Roll (y), Yaw (z). WebGL Euler rotation: 'YXZ' using Pitch, -Yaw, -Roll
-        drone.rotation.set(att.pitch, -att.yaw, -att.roll, 'YXZ');
-      }
-
-      // 2. Update Position
-      const pos = getPositionAt(timeUs);
-      if (pos) {
-        drone.position.set(pos.x, pos.y, pos.z);
-
-        if (isFollowingRef.current) {
-          cameraTargetRef.current.copy(drone.position);
-        }
-
-        // 3. Update paths
-        if (posTopic) {
-          const key = `${posTopic.name}:${posTopic.multiId}`;
-          const posData = topicCacheRef.current[key]; // Read from Ref
-          
-          if (posData) {
-            let lo = 0;
-            let hi = posData.timestamps.length - 1;
-            while (lo < hi) {
-              const mid = (lo + hi) >>> 1;
-              if (posData.timestamps[mid] < timeUs) lo = mid + 1;
-              else hi = mid;
-            }
-
-            // 3D 已飛過的路徑
-            if (activeGeomRef.current) {
-              const activePoints = pos.points.slice(0, lo + 1);
-              activeGeomRef.current.setFromPoints(activePoints);
-              activeGeomRef.current.computeBoundingSphere();
-              activeGeomRef.current.computeBoundingBox();
-            }
-
-            // 3D 尚未飛過的路徑
-            if (remainingGeomRef.current) {
-              const remainingPoints = pos.points.slice(lo);
-              remainingGeomRef.current.setFromPoints(remainingPoints);
-              remainingGeomRef.current.computeBoundingSphere();
-              remainingGeomRef.current.computeBoundingBox();
-            }
-
-            // 4. 地面投影軌跡與實時地貌資料解析
-            if (groundGeomRef.current) {
-              const distBottomArr = posData.fields['dist_bottom'];
-              const groundPoints: THREE.Vector3[] = [];
-
-              for (let i = 0; i <= lo; i++) {
-                const pt = pos.points[i];
-                let groundY = 0; // 預設平面
-                if (distBottomArr && distBottomArr[i] !== undefined && distBottomArr[i] > 0 && distBottomArr[i] < 1000) {
-                  // 地貌高度 = 飛行高度 - 與地面距離 (dist_bottom)
-                  groundY = pt.y - distBottomArr[i];
-                }
-                groundPoints.push(new THREE.Vector3(pt.x, groundY, pt.z));
-              }
-
-              groundGeomRef.current.setFromPoints(groundPoints);
-              groundGeomRef.current.computeBoundingSphere();
-              groundGeomRef.current.computeBoundingBox();
-            }
-
-            // 5. 實時垂直垂線 (Plumb Line)
-            if (verticalGeomRef.current) {
-              const distBottomArr = posData.fields['dist_bottom'];
-              let groundY = 0;
-              if (distBottomArr) {
-                const currentDistBottom = interpolateAt(posData.timestamps, distBottomArr, timeUs);
-                if (currentDistBottom > 0 && currentDistBottom < 1000) {
-                  groundY = pos.y - currentDistBottom;
-                }
-              }
-
-              const verticalPoints = [
-                new THREE.Vector3(pos.x, pos.y, pos.z),
-                new THREE.Vector3(pos.x, groundY, pos.z),
-              ];
-              verticalGeomRef.current.setFromPoints(verticalPoints);
-              verticalGeomRef.current.computeBoundingSphere();
-              verticalGeomRef.current.computeBoundingBox();
-            }
-          }
-        }
-      }
-    };
-
-    const unsubscribe = timePublisher.subscribe(updateAttitudeAndPosition);
-    updateAttitudeAndPosition(timePublisher.getTime());
-
-    return unsubscribe;
-  }, [getAttitudeAnglesAt, getPositionAt, posTopic]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
