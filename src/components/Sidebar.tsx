@@ -6,12 +6,12 @@ import styles from './Sidebar.module.css';
 
 type SidebarTab = 'topics' | 'info' | 'messages';
 
-export function Sidebar() {
+export function Sidebar({ width }: { width?: number }) {
   const { state } = useApp();
   const [activeTab, setActiveTab] = useState<SidebarTab>('topics');
 
   return (
-    <aside className={styles.root}>
+    <aside className={styles.root} style={width ? { width } : undefined}>
       <div className={styles.tabs}>
         {([
           ['topics', state.language === 'en' ? 'Topics' : '主題數據'],
@@ -310,6 +310,10 @@ function MetadataPanel() {
   const meta = state.summary?.metadata;
   const sum = state.summary;
 
+  const [paramSearch, setParamSearch] = useState('');
+  const [showAllParams, setShowAllParams] = useState(false);
+  const [paramSort, setParamSort] = useState<'none' | 'name-asc' | 'name-desc'>('none');
+
   if (!meta || !sum) return <div className={styles.empty}>{state.language === 'en' ? 'No data' : '無資料'}</div>;
 
   const rows: [string, string][] = [
@@ -321,7 +325,30 @@ function MetadataPanel() {
     [state.language === 'en' ? 'Flight Duration' : '飛行時長', `${(sum.durationUs / 1e6).toFixed(1)}s`],
   ];
 
-  const params = Object.entries(meta.parameters).slice(0, 30);
+  // 搜尋與過濾參數
+  const fullParams = Object.entries(meta.parameters);
+  const filteredParams = fullParams.filter(([k, v]) => {
+    const q = paramSearch.toLowerCase().trim();
+    if (!q) return true;
+    return k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q);
+  });
+
+  // 排序參數
+  const sortedParams = [...filteredParams];
+  if (paramSort === 'name-asc') {
+    sortedParams.sort((a, b) => a[0].localeCompare(b[0]));
+  } else if (paramSort === 'name-desc') {
+    sortedParams.sort((a, b) => b[0].localeCompare(a[0]));
+  }
+
+  // 是否需要截斷
+  const hasActiveSearch = paramSearch.trim().length > 0;
+  const displayParams = (showAllParams || hasActiveSearch) 
+    ? sortedParams 
+    : sortedParams.slice(0, 30);
+
+  const totalCount = fullParams.length;
+  const filteredCount = filteredParams.length;
 
   return (
     <div className={styles.metaPanel}>
@@ -335,23 +362,68 @@ function MetadataPanel() {
         ))}
       </div>
 
-      {params.length > 0 && (
+      {totalCount > 0 && (
         <div className={styles.metaSection}>
           <div className={styles.metaTitle}>
-            {state.language === 'en' ? `Parameters (${Object.keys(meta.parameters).length})` : `參數 (${Object.keys(meta.parameters).length})`}
+            <span>
+              {state.language === 'en' ? 'Parameters' : '參數'} ({filteredCount}/{totalCount})
+            </span>
           </div>
-          <div className={styles.paramList}>
-            {params.map(([k, v]) => (
+
+          {/* 參數搜尋與排序控制列 */}
+          <div className={styles.paramControls}>
+            <input
+              type="text"
+              className={styles.paramSearchInput}
+              value={paramSearch}
+              onChange={(e) => setParamSearch(e.target.value)}
+              placeholder={state.language === 'en' ? 'Search parameters...' : '搜尋參數與數值...'}
+            />
+            <button
+              className={`${styles.paramSortBtn} ${paramSort !== 'none' ? styles.active : ''}`}
+              onClick={() => {
+                setParamSort(prev => {
+                  if (prev === 'none') return 'name-asc';
+                  if (prev === 'name-asc') return 'name-desc';
+                  return 'none';
+                });
+              }}
+              title={
+                paramSort === 'none'
+                  ? (state.language === 'en' ? 'Sort alphabetically' : '字母排序')
+                  : paramSort === 'name-asc'
+                    ? (state.language === 'en' ? 'Sort Z-A' : '反向排序')
+                    : (state.language === 'en' ? 'Reset sort' : '取消排序')
+              }
+            >
+              {paramSort === 'none' ? 'Sort' : paramSort === 'name-asc' ? 'A-Z ↓' : 'Z-A ↑'}
+            </button>
+          </div>
+
+          <div className={styles.paramList} style={{ maxHeight: '350px' }}>
+            {displayParams.map(([k, v]) => (
               <div key={k} className={styles.paramRow}>
-                <span className={styles.paramKey}>{k}</span>
+                <span className={styles.paramKey} title={k}>{k}</span>
                 <span className={styles.paramVal}>{typeof v === 'number' ? v.toPrecision(6) : v}</span>
               </div>
             ))}
-            {Object.keys(meta.parameters).length > 30 && (
-              <div className={styles.moreHint}>
-                {state.language === 'en' 
-                  ? `...and ${Object.keys(meta.parameters).length - 30} more parameters` 
-                  : `...及 ${Object.keys(meta.parameters).length - 30} 個更多參數`}
+            
+            {/* Show All / Show Less 展開按鈕 */}
+            {!hasActiveSearch && sortedParams.length > 30 && (
+              <button
+                className={styles.showAllBtn}
+                onClick={() => setShowAllParams(!showAllParams)}
+              >
+                {showAllParams 
+                  ? (state.language === 'en' ? 'Show Less' : '▲ 顯示部分')
+                  : (state.language === 'en' ? `Show All (${sortedParams.length})` : `▼ 顯示全部 (${sortedParams.length})`)
+                }
+              </button>
+            )}
+
+            {hasActiveSearch && displayParams.length === 0 && (
+              <div className={styles.emptyParamsHint}>
+                {state.language === 'en' ? 'No matching parameters' : '無符合的參數'}
               </div>
             )}
           </div>

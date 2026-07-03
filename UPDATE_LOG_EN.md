@@ -31,3 +31,13 @@ This file is used to document and manage update items prior to every Merge Reque
     * Fixed a WebGL frustum culling bug where path lines would disappear at certain camera rotation angles by forcing `computeBoundingSphere` and `computeBoundingBox` recalculation upon line vertex updates.
   * **🗺️ 2D Terrain Relief Layer (MapPanel)**:
     * Introduced a "Terrain" map option (overlaying Google Terrain tiles `lyrs=p`) alongside Satellite and Roadmap, providing hillshading, land reliefs, and contour lines overlay visualization.
+  * **🎛️ Resizable Sidebar Layout (Sidebar Resize)**:
+    * Added a vertical drag handle in the core layout (`App.tsx` and `App.module.css`) with a hover highlight indicator (cyan neon glow).
+    * Enabled users to adjust the sidebar width dynamically between `200px` and `600px` by dragging, resolving the issue where long field names or parameter labels were truncated.
+  * **📋 Parameter Explorer Enhancements (Metadata Explorer)**:
+    * Added parameter filtering/search and name sorting (A-Z / Z-A) controls inside the Sidebar's Metadata tab, allowing real-time searching by parameter name or value.
+    * Integrated a "Show All" / "Show Less" toggle that replaces the static 30-parameter display limit, allowing complete inspection of the full parameter file.
+  * **🛰️ 3D Satellite Map Overlay & Real-Time Terrain Plumb Line (Attitude3dPanel)**:
+    * Dynamically calculated Web Mercator home offsets and flight radius from GPS caches to asynchronously stitch a $3 \times 3$ grid of Google Satellite tiles (`lyrs=s`) centered at the takeoff location in the 3D viewer.
+    * Added a "Satellite Ground" toggle button in the 3D panel's control overlay to allow users to switch backgrounds easily.
+    * Introduced a ground track projection line and an interactive vertical plumb line that tracks drone altitude above the terrain. The lines dynamically adjust their heights based on the ULog's `dist_bottom` (ground distance sensor) field, and automatically project onto the flat takeoff plane ($Y = 0$) as a fallback.

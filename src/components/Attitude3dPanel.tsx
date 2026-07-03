@@ -24,6 +24,16 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const activePathLineRef = useRef<THREE.Line | null>(null);
   const activeGeomRef = useRef<THREE.BufferGeometry | null>(null);
 
+  // 地面投影與垂線
+  const groundPathLineRef = useRef<THREE.Line | null>(null);
+  const groundGeomRef = useRef<THREE.BufferGeometry | null>(null);
+  const verticalLineRef = useRef<THREE.Line | null>(null);
+  const verticalGeomRef = useRef<THREE.BufferGeometry | null>(null);
+
+  // 衛星地圖貼圖群組
+  const satelliteGroupRef = useRef<THREE.Group | null>(null);
+  const [showSatellite, setShowSatellite] = useState<boolean>(true); // 預設啟用
+
   // Camera angles & zoom
   const cameraTheta = useRef<number>(Math.PI / 4);
   const cameraPhi = useRef<number>(Math.PI / 3);
@@ -50,6 +60,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const posTopic = state.summary?.topics.find(
     t => t.name === 'vehicle_local_position' || t.name.includes('vehicle_local_position')
   );
+  const gpsTopic = state.summary?.topics.find(
+    t => t.name === 'vehicle_gps_position' || t.name === 'vehicle_global_position' || t.name.includes('gps') || t.name.includes('global_position')
+  );
 
   const [hasAttitude, setHasAttitude] = useState<boolean>(!!attTopic);
 
@@ -68,10 +81,22 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     if (posTopic) {
       const key = `${posTopic.name}:${posTopic.multiId}`;
       if (!state.topicCache[key]) {
-        requestTopicData(posTopic.name, posTopic.multiId, ['x', 'y', 'z']);
+        // Request x, y, z AND dist_bottom (range to ground) if available
+        const posFields = ['x', 'y', 'z'];
+        if (posTopic.fields.includes('dist_bottom')) {
+          posFields.push('dist_bottom');
+        }
+        requestTopicData(posTopic.name, posTopic.multiId, posFields);
       }
     }
-  }, [attTopic, posTopic, state.topicCache, requestTopicData]);
+
+    if (gpsTopic) {
+      const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
+      if (!state.topicCache[key]) {
+        requestTopicData(gpsTopic.name, gpsTopic.multiId, ['lat', 'lon']);
+      }
+    }
+  }, [attTopic, posTopic, gpsTopic, state.topicCache, requestTopicData]);
 
   // Interpolate Roll, Pitch, Yaw from quaternion in state cache
   const getAttitudeAnglesAt = useCallback((timeUs: number): { roll: number; pitch: number; yaw: number } | null => {
@@ -93,11 +118,11 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       if (!qw || !qx || !qy || !qz) return null;
 
       const q0 = interpolateAt(data.timestamps, qw, timeUs);
-      const q1 = interpolateAt(data.timestamps, qx, timeUs);
-      const q2 = interpolateAt(data.timestamps, qy, timeUs);
-      const q3 = interpolateAt(data.timestamps, qz, timeUs);
+      const qxVal = interpolateAt(data.timestamps, qx, timeUs);
+      const qyVal = interpolateAt(data.timestamps, qy, timeUs);
+      const qzVal = interpolateAt(data.timestamps, qz, timeUs);
 
-      return quatToEuler(q0, q1, q2, q3);
+      return quatToEuler(q0, qxVal, qyVal, qzVal);
     }
 
     const q0 = interpolateAt(data.timestamps, q0Arr, timeUs);
@@ -148,6 +173,30 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     return { ...currentPos, points };
   }, [posTopic, state.topicCache]);
 
+  // 獲取起飛點 GPS 座標作為原點
+  const getGpsHome = useCallback((): { lat: number; lon: number } | null => {
+    if (!gpsTopic) return null;
+    const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
+    const data = state.topicCache[key];
+    if (!data) return null;
+
+    const latArr = data.fields['lat'];
+    const lonArr = data.fields['lon'];
+    if (!latArr || !lonArr || latArr.length === 0) return null;
+
+    // 尋找第一個有效 GPS 位置
+    for (let i = 0; i < latArr.length; i++) {
+      let lat = latArr[i];
+      let lon = lonArr[i];
+      if (lat !== 0 && lon !== 0) {
+        if (lat > 180) lat /= 1e7;
+        if (lon > 180) lon /= 1e7;
+        return { lat, lon };
+      }
+    }
+    return null;
+  }, [gpsTopic, state.topicCache]);
+
   // Setup Three.js Scene
   useEffect(() => {
     if (!mountRef.current || !hasAttitude) return;
@@ -161,7 +210,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     scene.background = new THREE.Color('#0a0f1d');
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 500);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 5000);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -171,10 +220,10 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     rendererRef.current = renderer;
 
     // 2. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     scene.add(ambientLight);
 
-    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.85);
     dirLight1.position.set(5, 15, 7);
     scene.add(dirLight1);
 
@@ -191,7 +240,13 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     axesHelper.position.set(0, 0, 0);
     scene.add(axesHelper);
 
-    // 4. Build Custom 3D Drone Model
+    // 4. Setup Satellite Group
+    const satelliteGroup = new THREE.Group();
+    scene.add(satelliteGroup);
+    satelliteGroupRef.current = satelliteGroup;
+    satelliteGroup.visible = showSatellite;
+
+    // 5. Build Custom 3D Drone Model
     const droneGroup = new THREE.Group();
     scene.add(droneGroup);
     droneRef.current = droneGroup;
@@ -243,11 +298,11 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       props.push(prop);
     });
 
-    // 5. Initialize Path Lines
+    // 6. Initialize Path Lines
     // 尚未飛過的未來航線 (黃色)
     const remainingGeom = new THREE.BufferGeometry();
     const remainingMat = new THREE.LineBasicMaterial({
-      color: '#eab308', // Yellow
+      color: '#eab308',
       transparent: true,
       opacity: 0.6,
     });
@@ -259,7 +314,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     // 播放中已飛過的發光航線 (紅色)
     const activeGeom = new THREE.BufferGeometry();
     const activeMat = new THREE.LineBasicMaterial({
-      color: '#ef4444', // Red
+      color: '#ef4444',
       linewidth: 2,
     });
     const activePathLine = new THREE.Line(activeGeom, activeMat);
@@ -267,7 +322,32 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     activePathLineRef.current = activePathLine;
     activeGeomRef.current = activeGeom;
 
-    // 6. Animation loop
+    // 地面軌跡投影線 (深藍灰色)
+    const groundGeom = new THREE.BufferGeometry();
+    const groundMat = new THREE.LineBasicMaterial({
+      color: '#475569',
+      linewidth: 1,
+      transparent: true,
+      opacity: 0.8,
+    });
+    const groundPathLine = new THREE.Line(groundGeom, groundMat);
+    scene.add(groundPathLine);
+    groundPathLineRef.current = groundPathLine;
+    groundGeomRef.current = groundGeom;
+
+    // 垂直投影垂線 (白色虛線)
+    const verticalGeom = new THREE.BufferGeometry();
+    const verticalMat = new THREE.LineBasicMaterial({
+      color: '#ffffff',
+      transparent: true,
+      opacity: 0.5,
+    });
+    const verticalLine = new THREE.Line(verticalGeom, verticalMat);
+    scene.add(verticalLine);
+    verticalLineRef.current = verticalLine;
+    verticalGeomRef.current = verticalGeom;
+
+    // 7. Animation loop
     let animId: number;
     let propRot = 0;
 
@@ -278,37 +358,36 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       if (state.playback.isPlaying) {
         propRot += 0.25 * state.playback.speedMultiplier;
         props.forEach((p, idx) => {
-          p.rotation.y = idx % 2 === 0 ? propRot : -propRot;
+          p.rotation.y = (idx % 2 === 0 ? 1 : -1) * propRot;
         });
       }
 
-      // 相機焦點平滑跟隨
-      const target = cameraTargetRef.current;
-      if (isFollowingRef.current && droneGroup) {
-        target.copy(droneGroup.position);
-      }
+      // 更新相機位置 (Slerp)
+      const theta = cameraTheta.current;
+      const phi = cameraPhi.current;
+      const radius = cameraRadius.current;
 
-      const targetX = target.x + cameraRadius.current * Math.sin(cameraPhi.current) * Math.sin(cameraTheta.current);
-      const targetY = target.y + cameraRadius.current * Math.cos(cameraPhi.current);
-      const targetZ = target.z + cameraRadius.current * Math.sin(cameraPhi.current) * Math.cos(cameraTheta.current);
+      const targetCamPos = new THREE.Vector3(
+        radius * Math.sin(phi) * Math.sin(theta),
+        radius * Math.cos(phi),
+        radius * Math.sin(phi) * Math.cos(theta)
+      ).add(cameraTargetRef.current);
 
-      camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.15);
-      camera.lookAt(target);
+      camera.position.lerp(targetCamPos, 0.1);
+      camera.lookAt(cameraTargetRef.current);
 
-      if (rendererRef.current && sceneRef.current) {
-        rendererRef.current.render(sceneRef.current, camera);
-      }
+      renderer.render(scene, camera);
     };
     animate();
 
-    // 7. 註冊滾輪縮放 (綁定在容器上以防止警告)
+    // 8. 註冊滾輪縮放
     const onWheelEvent = (e: WheelEvent) => {
       e.preventDefault();
       cameraRadius.current = Math.max(1.0, Math.min(2000, cameraRadius.current + e.deltaY * 0.015));
     };
     container.addEventListener('wheel', onWheelEvent, { passive: false });
 
-    // 8. Resize Observer
+    // 9. Resize Observer
     const ro = new ResizeObserver(() => {
       if (!rendererRef.current) return;
       const w = container.clientWidth;
@@ -320,47 +399,127 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     ro.observe(container);
 
     return () => {
-      cancelAnimationFrame(animId);
       ro.disconnect();
+      cancelAnimationFrame(animId);
       container.removeEventListener('wheel', onWheelEvent);
-      if (rendererRef.current && container.contains(rendererRef.current.domElement)) {
-        container.removeChild(rendererRef.current.domElement);
+      renderer.dispose();
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
       }
-      scene.clear();
-      cameraRef.current = null;
+      rendererRef.current = null;
     };
-  }, [hasAttitude, state.playback.isPlaying]);
+  }, [hasAttitude]);
 
-  // 訂閱 timePublisher 實實更新無人機位置、姿態與軌跡，完全不需 React re-render
+  // Toggle Satellite Visibility Reactively
+  useEffect(() => {
+    if (satelliteGroupRef.current) {
+      satelliteGroupRef.current.visible = showSatellite;
+    }
+  }, [showSatellite]);
+
+  // Load Satellite Ground Texture Async
+  useEffect(() => {
+    if (!sceneRef.current || !satelliteGroupRef.current) return;
+
+    // 清空舊貼圖
+    while (satelliteGroupRef.current.children.length > 0) {
+      satelliteGroupRef.current.remove(satelliteGroupRef.current.children[0]);
+    }
+
+    const home = getGpsHome();
+    if (!home) return;
+
+    const localPoints = getPositionAt(0)?.points ?? [];
+    if (localPoints.length === 0) return;
+
+    // 計算水平航線的最大包絡半徑
+    let maxRadius = 100;
+    localPoints.forEach((pt) => {
+      const dist = Math.sqrt(pt.x * pt.x + pt.z * pt.z);
+      if (dist > maxRadius) maxRadius = dist;
+    });
+
+    const lat0 = home.lat * Math.PI / 180;
+    const cosLat = Math.cos(lat0);
+    const C = 40075016.686;
+
+    // 計算合適的 Google 瓦片 Zoom Level
+    const ratio = (1.5 * C * cosLat) / maxRadius;
+    let zoom = Math.floor(Math.log2(ratio));
+    zoom = Math.max(12, Math.min(19, zoom)); // 限制在 Zoom 12 到 19 之間
+
+    const tileX = Math.floor(((home.lon + 180) / 360) * Math.pow(2, zoom));
+    const tileY = Math.floor(((1 - Math.log(Math.tan((home.lat * Math.PI) / 180) + 1 / Math.cos((home.lat * Math.PI) / 180)) / Math.PI) / 2) * Math.pow(2, zoom));
+    const tileSize = (C * cosLat) / Math.pow(2, zoom);
+
+    const homeMercX = (home.lon + 180) / 360;
+    const homeMercY = (1 - Math.log(Math.tan((home.lat * Math.PI) / 180) + 1 / Math.cos((home.lat * Math.PI) / 180)) / Math.PI) / 2;
+
+    const textureLoader = new THREE.TextureLoader();
+
+    // 載入 3x3 瓦片以覆蓋整個飛行航線
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const tx = tileX + dx;
+        const ty = tileY + dy;
+        const url = `https://mt1.google.com/vt/lyrs=s&x=${tx}&y=${ty}&z=${zoom}`;
+
+        const tileMercX = (tx + 0.5) / Math.pow(2, zoom);
+        const tileMercY = (ty + 0.5) / Math.pow(2, zoom);
+
+        const relX = (tileMercX - homeMercX) * C * cosLat;
+        const relY = -(tileMercY - homeMercY) * C * cosLat;
+
+        const geom = new THREE.PlaneGeometry(tileSize, tileSize);
+        const texture = textureLoader.load(url);
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        
+        const mat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.rotateX(-Math.PI / 2);
+        mesh.position.set(relX, -0.05, -relY); // 略微下沉避開 Z 衝突
+        satelliteGroupRef.current.add(mesh);
+      }
+    }
+  }, [state.topicCache, gpsTopic, getGpsHome, getPositionAt]);
+
+  // Sync Att & Pos via timePublisher Emitter
   useEffect(() => {
     const updateAttitudeAndPosition = (timeUs: number) => {
-      if (!droneRef.current) return;
+      const drone = droneRef.current;
+      if (!drone) return;
 
-      // 1. 更新姿態旋轉
-      const angles = getAttitudeAnglesAt(timeUs);
-      if (angles) {
-        droneRef.current.rotation.set(angles.pitch, -angles.yaw, -angles.roll, 'YXZ');
+      // 1. Update Attitude
+      const att = getAttitudeAnglesAt(timeUs);
+      if (att) {
+        // NED: Pitch (x), Roll (y), Yaw (z). WebGL Euler rotation: 'YXZ' using Pitch, -Yaw, -Roll
+        drone.rotation.set(att.pitch, -att.yaw, -att.roll, 'YXZ');
       }
 
-      // 2. 更新位置與軌跡線
+      // 2. Update Position
       const pos = getPositionAt(timeUs);
       if (pos) {
-        droneRef.current.position.set(pos.x, pos.y, pos.z);
+        drone.position.set(pos.x, pos.y, pos.z);
 
-        // 更新目前已飛過的時間點軌跡點 (0 -> lo) 與尚未飛過的軌跡點 (lo -> end)
+        if (isFollowingRef.current) {
+          cameraTargetRef.current.copy(drone.position);
+        }
+
+        // 3. Update paths
         if (posTopic) {
           const key = `${posTopic.name}:${posTopic.multiId}`;
-          const data = state.topicCache[key];
-          if (data) {
+          const posData = state.topicCache[key];
+          
+          if (posData) {
             let lo = 0;
-            let hi = data.timestamps.length - 1;
+            let hi = posData.timestamps.length - 1;
             while (lo < hi) {
               const mid = (lo + hi) >>> 1;
-              if (data.timestamps[mid] < timeUs) lo = mid + 1;
+              if (posData.timestamps[mid] < timeUs) lo = mid + 1;
               else hi = mid;
             }
 
-            // 已飛過的路徑
+            // 3D 已飛過的路徑
             if (activeGeomRef.current) {
               const activePoints = pos.points.slice(0, lo + 1);
               activeGeomRef.current.setFromPoints(activePoints);
@@ -368,12 +527,52 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
               activeGeomRef.current.computeBoundingBox();
             }
 
-            // 尚未飛過的路徑
+            // 3D 尚未飛過的路徑
             if (remainingGeomRef.current) {
               const remainingPoints = pos.points.slice(lo);
               remainingGeomRef.current.setFromPoints(remainingPoints);
               remainingGeomRef.current.computeBoundingSphere();
               remainingGeomRef.current.computeBoundingBox();
+            }
+
+            // 4. 地面投影軌跡與實時地貌資料解析
+            if (groundGeomRef.current) {
+              const distBottomArr = posData.fields['dist_bottom'];
+              const groundPoints: THREE.Vector3[] = [];
+
+              for (let i = 0; i <= lo; i++) {
+                const pt = pos.points[i];
+                let groundY = 0; // 預設平面
+                if (distBottomArr && distBottomArr[i] !== undefined && distBottomArr[i] > 0 && distBottomArr[i] < 1000) {
+                  // 地貌高度 = 飛行高度 - 與地面距離 (dist_bottom)
+                  groundY = pt.y - distBottomArr[i];
+                }
+                groundPoints.push(new THREE.Vector3(pt.x, groundY, pt.z));
+              }
+
+              groundGeomRef.current.setFromPoints(groundPoints);
+              groundGeomRef.current.computeBoundingSphere();
+              groundGeomRef.current.computeBoundingBox();
+            }
+
+            // 5. 實時垂直垂線 (Plumb Line)
+            if (verticalGeomRef.current) {
+              const distBottomArr = posData.fields['dist_bottom'];
+              let groundY = 0;
+              if (distBottomArr) {
+                const currentDistBottom = interpolateAt(posData.timestamps, distBottomArr, timeUs);
+                if (currentDistBottom > 0 && currentDistBottom < 1000) {
+                  groundY = pos.y - currentDistBottom;
+                }
+              }
+
+              const verticalPoints = [
+                new THREE.Vector3(pos.x, pos.y, pos.z),
+                new THREE.Vector3(pos.x, groundY, pos.z),
+              ];
+              verticalGeomRef.current.setFromPoints(verticalPoints);
+              verticalGeomRef.current.computeBoundingSphere();
+              verticalGeomRef.current.computeBoundingBox();
             }
           }
         }
@@ -381,26 +580,20 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     };
 
     const unsubscribe = timePublisher.subscribe(updateAttitudeAndPosition);
-
-    // 初始對齊
     updateAttitudeAndPosition(timePublisher.getTime());
 
     return unsubscribe;
   }, [getAttitudeAnglesAt, getPositionAt, posTopic, state.topicCache]);
 
-  // 滑鼠拖曳控制（左鍵旋轉、中鍵平移）
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0) { // Left click: Rotate
-      dragMode.current = 'rotate';
-      isDragging.current = true;
-      lastMouseX.current = e.clientX;
-      lastMouseY.current = e.clientY;
-    } else if (e.button === 1) { // Middle click: Pan
-      e.preventDefault(); // 阻擋中鍵瀏覽器自動滾動
+    isDragging.current = true;
+    lastMouseX.current = e.clientX;
+    lastMouseY.current = e.clientY;
+
+    if (e.button === 1 || e.button === 2) {
       dragMode.current = 'pan';
-      isDragging.current = true;
-      lastMouseX.current = e.clientX;
-      lastMouseY.current = e.clientY;
+    } else {
+      dragMode.current = 'rotate';
     }
   };
 
@@ -415,13 +608,11 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       cameraTheta.current -= deltaX * 0.006;
       cameraPhi.current = Math.max(0.01, Math.min(Math.PI - 0.01, cameraPhi.current - deltaY * 0.006));
     } else if (dragMode.current === 'pan' && cameraRef.current) {
-      // 一旦進行手動平移，立即脫離跟隨鎖定狀態
       setIsFollowing(false);
 
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cameraRef.current.quaternion);
       const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cameraRef.current.quaternion);
       
-      // 根據相機縮放半徑決定平移灵敏度
       const factor = cameraRadius.current * 0.0015;
       cameraTargetRef.current.addScaledVector(right, -deltaX * factor);
       cameraTargetRef.current.addScaledVector(up, deltaY * factor);
@@ -443,6 +634,8 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     );
   }
 
+  const hasGpsData = !!gpsTopic;
+
   return (
     <div
       className={styles.root}
@@ -456,21 +649,33 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         {state.language === 'en' ? '3D Real-Time Attitude & Flight Path Viewer' : '3D 實時姿態與航線軌跡觀測器'}
       </div>
 
-      {/* 恢復跟隨按鈕 */}
-      {!isFollowing && (
-        <button
-          className={styles.resetFollowBtn}
-          onClick={() => {
-            setIsFollowing(true);
-            if (droneRef.current) {
-              cameraTargetRef.current.copy(droneRef.current.position);
-            }
-          }}
-          title={state.language === 'en' ? 'Resume camera locking onto the drone' : '恢復視角跟隨無人機'}
-        >
-          {state.language === 'en' ? '📍 Resume Follow' : '📍 恢復跟隨'}
-        </button>
-      )}
+      {/* 3D 控制按鈕浮動列 */}
+      <div className={styles.controlOverlay}>
+        {hasGpsData && (
+          <button
+            className={`${styles.overlayBtn} ${showSatellite ? styles.overlayBtnActive : ''}`}
+            onClick={() => setShowSatellite(!showSatellite)}
+            title={state.language === 'en' ? 'Toggle Google Satellite texture ground' : '切換 Google 衛星空照地面背景'}
+          >
+            🛰️ {state.language === 'en' ? 'Satellite Ground' : '衛星背景'}
+          </button>
+        )}
+
+        {!isFollowing && (
+          <button
+            className={styles.overlayBtn}
+            onClick={() => {
+              setIsFollowing(true);
+              if (droneRef.current) {
+                cameraTargetRef.current.copy(droneRef.current.position);
+              }
+            }}
+            title={state.language === 'en' ? 'Lock camera target back onto the drone' : '恢復相機跟隨鎖定飛機'}
+          >
+            📍 {state.language === 'en' ? 'Follow Drone' : '恢復跟隨'}
+          </button>
+        )}
+      </div>
 
       <div ref={mountRef} className={styles.canvasContainer} />
     </div>
