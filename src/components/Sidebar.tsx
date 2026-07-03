@@ -46,6 +46,7 @@ function TopicTree() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // 多選：key = "topicName:multiId:fieldName"
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastClickedKey, setLastClickedKey] = useState<string | null>(null);
 
   const topics = state.summary?.topics ?? [];
 
@@ -87,6 +88,42 @@ function TopicTree() {
       return s;
     });
   };
+
+  const handleFieldClick = useCallback((e: React.MouseEvent, fieldKey: string) => {
+    if (e.ctrlKey || e.metaKey) {
+      toggleField(fieldKey);
+      setLastClickedKey(fieldKey);
+    } else if (e.shiftKey && lastClickedKey) {
+      const flatVisibleFields: string[] = [];
+      for (const topic of topics) {
+        const topicKey = `${topic.name}:${topic.multiId}`;
+        if (expanded.has(topicKey)) {
+          for (const f of topic.fields) {
+            flatVisibleFields.push(`${topic.name}:${topic.multiId}:${f}`);
+          }
+        }
+      }
+
+      const idx1 = flatVisibleFields.indexOf(lastClickedKey);
+      const idx2 = flatVisibleFields.indexOf(fieldKey);
+
+      if (idx1 >= 0 && idx2 >= 0) {
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+        const toAdd = flatVisibleFields.slice(start, end + 1);
+
+        setSelected(prev => {
+          const s = new Set(prev);
+          toAdd.forEach(k => s.add(k));
+          return s;
+        });
+      }
+      setLastClickedKey(fieldKey);
+    } else {
+      setSelected(new Set([fieldKey]));
+      setLastClickedKey(fieldKey);
+    }
+  }, [expanded, topics, lastClickedKey]);
 
   // 把 selected 組成 ChartSeries[] JSON 放進 dataTransfer
   const buildSeriesFromSelected = useCallback((): ChartSeries[] => {
@@ -224,6 +261,7 @@ function TopicTree() {
                           className={`${styles.fieldRow} ${isChecked ? styles.fieldRowSelected : ''}`}
                           draggable
                           onDragStart={e => onDragStart(e, topic.name, topic.multiId, field)}
+                          onClick={e => handleFieldClick(e, fieldKey)}
                           title={isChecked && selected.size > 1
                             ? `拖曳所有 ${selected.size} 個已選欄位`
                             : `拖曳至圖表：${topic.name}.${field}`}
@@ -232,7 +270,11 @@ function TopicTree() {
                             type="checkbox"
                             className={styles.fieldCheckbox}
                             checked={isChecked}
-                            onChange={() => toggleField(fieldKey)}
+                            onChange={(e) => {
+                              // We let handleFieldClick handle selection, but if the checkbox itself is toggled:
+                              e.stopPropagation();
+                              toggleField(fieldKey);
+                            }}
                             onClick={e => e.stopPropagation()}
                           />
                           <span className={styles.dragHandle}>⠿</span>

@@ -30,6 +30,7 @@ export function ChartPanel({
   const rootRef = useRef<HTMLDivElement>(null);       // 整個 panel 容器
   const chartAreaRef = useRef<HTMLDivElement>(null);  // 僅圖表區域
   const chartRef = useRef<uPlot | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   const [isDragTarget, setIsDragTarget] = useState(false);
 
   // ─── 組裝 uPlot 數據 ────────────────────────────────────────────────────────
@@ -149,6 +150,74 @@ export function ChartPanel({
             ctx.restore();
           },
         ],
+        setCursor: [
+          (u) => {
+            const tooltip = tooltipRef.current;
+            if (!tooltip) return;
+
+            if (
+              u.cursor.left === null ||
+              u.cursor.left === undefined ||
+              u.cursor.left < 0 ||
+              u.cursor.idx === null ||
+              u.cursor.idx === undefined
+            ) {
+              tooltip.style.display = 'none';
+              return;
+            }
+
+            const idx = u.cursor.idx;
+            const timeVal = u.data[0][idx];
+            if (timeVal === undefined) {
+              tooltip.style.display = 'none';
+              return;
+            }
+
+            let tooltipContent = `<div class="${styles.tooltipTime}">時間: ${timeVal.toFixed(3)}s</div>`;
+            tooltipContent += `<div class="${styles.tooltipDivider}"></div>`;
+
+            let hasValidData = false;
+            for (let i = 1; i < u.series.length; i++) {
+              const s = u.series[i];
+              if (!s.show) continue;
+              const val = u.data[i][idx];
+              if (val === undefined || val === null) continue;
+              hasValidData = true;
+
+              const seriesInfo = panel.series[i - 1];
+              const color = s.stroke;
+              tooltipContent += `
+                <div class="${styles.tooltipRow}">
+                  <span class="${styles.tooltipDot}" style="background-color: ${color}"></span>
+                  <span class="${styles.tooltipLabel}">${seriesInfo.topicName}.${seriesInfo.fieldName}:</span>
+                  <span class="${styles.tooltipValue}">${val.toFixed(4)}</span>
+                </div>
+              `;
+            }
+
+            if (!hasValidData) {
+              tooltip.style.display = 'none';
+              return;
+            }
+
+            tooltip.innerHTML = tooltipContent;
+            tooltip.style.display = 'block';
+
+            const plotRect = chartAreaRef.current!.getBoundingClientRect();
+            const panelRect = rootRef.current!.getBoundingClientRect();
+            
+            const cursorLeft = plotRect.left - panelRect.left + (u.cursor.left ?? 0);
+            const cursorTop = plotRect.top - panelRect.top + (u.cursor.top ?? 0);
+
+            const tooltipWidth = 220;
+            const leftPos = cursorLeft + 15 + tooltipWidth > panelRect.width 
+              ? cursorLeft - tooltipWidth - 15 
+              : cursorLeft + 15;
+            
+            tooltip.style.left = `${leftPos}px`;
+            tooltip.style.top = `${cursorTop + 15}px`;
+          }
+        ]
       },
     };
   }, [panel.series, currentTimeUs, state.summary]);
@@ -174,8 +243,33 @@ export function ChartPanel({
 
     const data = buildChartData();
     const opts = buildOptions(width, height);
-    chartRef.current = new uPlot(opts, data, chartAreaRef.current);
-  }, [buildChartData, buildOptions, getChartSize]);
+    const plot = new uPlot(opts, data, chartAreaRef.current);
+    chartRef.current = plot;
+
+    // 註冊滾輪縮放監聽器
+    plot.over.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      const minX = plot.scales.x.min!;
+      const maxX = plot.scales.x.max!;
+      const range = maxX - minX;
+      const rect = plot.over.getBoundingClientRect();
+      const mousePct = (e.clientX - rect.left) / rect.width;
+      const mouseVal = minX + mousePct * range;
+      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+      const newRange = range * zoomFactor;
+      const newMin = mouseVal - mousePct * newRange;
+      const newMax = newMin + newRange;
+
+      const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+
+      plot.batch(() => {
+        plot.setScale('x', {
+          min: Math.max(0, newMin),
+          max: Math.min(logEnd, newMax),
+        });
+      });
+    });
+  }, [buildChartData, buildOptions, getChartSize, state.summary]);
 
   // 資料或 series 改變時重建
   useEffect(() => {
@@ -314,6 +408,9 @@ export function ChartPanel({
 
       {/* ── uPlot 圖表區域 ── */}
       <div ref={chartAreaRef} className={styles.chartArea} />
+
+      {/* ── 懸浮數據提示框 ── */}
+      <div ref={tooltipRef} className={styles.tooltip} style={{ display: 'none' }} />
     </div>
   );
 }

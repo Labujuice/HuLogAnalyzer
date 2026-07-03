@@ -119,3 +119,64 @@
 .chartArea :global(.u-under) {
   border-radius: 0;
 }
+
+/* ─── 懸浮數據提示框 ─── */
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(13, 21, 38, 0.95);
+  border: 1px solid var(--clr-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  padding: 8px 12px;
+  z-index: 1000;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  min-width: 180px;
+  max-width: 280px;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.1s ease;
+}
+
+.tooltipTime {
+  color: var(--clr-text-accent);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.tooltipDivider {
+  height: 1px;
+  background: var(--clr-border);
+  margin: 4px 0;
+}
+
+.tooltipRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0;
+}
+
+.tooltipDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tooltipLabel {
+  color: var(--clr-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tooltipValue {
+  color: var(--clr-text-primary);
+  font-weight: 500;
+  text-align: right;
+  flex-shrink: 0;
+}
+
