@@ -90,7 +90,7 @@ export function ChartPanel({
       height,
       cursor: {
         sync: { key: sharedSync.key },
-        drag: { x: true, y: false },
+        drag: { x: true, y: false, setScale: false },
       },
       scales: { x: { time: false } },
       axes: [
@@ -246,7 +246,7 @@ export function ChartPanel({
     const plot = new uPlot(opts, data, chartAreaRef.current);
     chartRef.current = plot;
 
-    // 註冊滾輪縮放監聽器
+    // 1. 註冊滾輪縮放監聽器
     plot.over.addEventListener('wheel', (e: WheelEvent) => {
       e.preventDefault();
       const minX = plot.scales.x.min!;
@@ -269,6 +269,100 @@ export function ChartPanel({
         });
       });
     });
+
+    // 2. 註冊中鍵拖曳平移 (Pan) 與左鍵拖曳方向性縮放 (Zoom In/Out)
+    let leftStartX = 0;
+
+    plot.over.addEventListener('mousedown', (e: MouseEvent) => {
+      // 中鍵點擊 (button === 1) 平移
+      if (e.button === 1) {
+        e.preventDefault(); // 阻擋瀏覽器預設的滾輪滾動圖示
+        const startX = e.clientX;
+        const minX = plot.scales.x.min!;
+        const maxX = plot.scales.x.max!;
+        const range = maxX - minX;
+        const rect = plot.over.getBoundingClientRect();
+        const secPerPx = range / rect.width;
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+          const deltaX = moveEvent.clientX - startX;
+          const offsetSec = deltaX * secPerPx;
+          const newMin = minX - offsetSec;
+          const newMax = maxX - offsetSec;
+          const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+
+          plot.batch(() => {
+            plot.setScale('x', {
+              min: Math.max(0, newMin),
+              max: Math.min(logEnd, newMax),
+            });
+          });
+        };
+
+        const onMouseUp = (upEvent: MouseEvent) => {
+          if (upEvent.button === 1) {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+          }
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      }
+
+      // 左鍵點擊 (button === 0) 紀錄起點，用於判斷拖曳方向 (放大/縮小)
+      if (e.button === 0) {
+        leftStartX = e.clientX;
+
+        const onLeftMouseUp = (upEvent: MouseEvent) => {
+          if (upEvent.button === 0) {
+            document.removeEventListener('mouseup', onLeftMouseUp);
+
+            const leftEndX = upEvent.clientX;
+            const diff = leftEndX - leftStartX;
+
+            // 忽略微小抖動 (單純點擊)
+            if (Math.abs(diff) < 5) return;
+
+            const minX = plot.scales.x.min!;
+            const maxX = plot.scales.x.max!;
+            const range = maxX - minX;
+            const rect = plot.over.getBoundingClientRect();
+
+            if (diff > 0) {
+              // 從左往右拖曳：放大至框選範圍
+              const selectStartVal = plot.posToVal(plot.select.left, 'x');
+              const selectEndVal = plot.posToVal(plot.select.left + plot.select.width, 'x');
+
+              plot.batch(() => {
+                plot.setScale('x', { min: selectStartVal, max: selectEndVal });
+                plot.setSelect({ left: 0, width: 0, top: 0, height: 0 });
+              });
+            } else {
+              // 從右往左拖曳：縮小
+              const dragPct = Math.abs(diff) / rect.width;
+              const zoomFactor = 1 + dragPct * 3;
+              const centerVal = minX + range / 2;
+              const newRange = range * zoomFactor;
+              const newMin = centerVal - newRange / 2;
+              const newMax = centerVal + newRange / 2;
+
+              const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+
+              plot.batch(() => {
+                plot.setScale('x', {
+                  min: Math.max(0, newMin),
+                  max: Math.min(logEnd, newMax),
+                });
+                plot.setSelect({ left: 0, width: 0, top: 0, height: 0 });
+              });
+            }
+          }
+        };
+
+        document.addEventListener('mouseup', onLeftMouseUp);
+      }
+    });
   }, [buildChartData, buildOptions, getChartSize, state.summary]);
 
   // 資料或 series 改變時重建
@@ -284,6 +378,31 @@ export function ChartPanel({
   useEffect(() => {
     chartRef.current?.redraw(false);
   }, [currentTimeUs]);
+
+  // ─── 快捷鍵復原縮放 (Esc / R) ──────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 避免在輸入框中按 R 時觸發
+      if (
+        document.activeElement?.tagName === 'INPUT' ||
+        document.activeElement?.tagName === 'TEXTAREA'
+      ) {
+        return;
+      }
+
+      if (e.key === 'Escape' || e.key === 'r' || e.key === 'R') {
+        const u = chartRef.current;
+        if (u) {
+          const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+          u.batch(() => {
+            u.setScale('x', { min: 0, max: logEnd });
+          });
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.summary]);
 
   // ResizeObserver：尺寸改變時更新 uPlot 大小
   useEffect(() => {
