@@ -1,0 +1,48 @@
+.root {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #0a0f1d;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--clr-border);
+}
+
+.panelTitle {
+  position: absolute;
+  top: var(--sp-3);
+  left: var(--sp-4);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: var(--clr-text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  z-index: 10;
+  background: rgba(10, 15, 29, 0.6);
+  padding: 2px 6px;
+  border-radius: 3px;
+  backdrop-filter: blur(2px);
+}
+
+.canvasContainer {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+.noData {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 12px;
+  color: var(--clr-text-muted);
+  font-family: var(--font-sans);
+  background: var(--clr-bg-surface);
+}

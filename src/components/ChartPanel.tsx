@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useApp } from '../store/appStore';
-import type { ChartSeries, Panel } from '../types/ulog';
+import type { ChartSeries, Panel, PanelType } from '../types/ulog';
 import { interpolateAt } from '../parser/utils';
+import { Attitude3dPanel } from './Attitude3dPanel';
+import { AhrsPanel } from './AhrsPanel';
 import styles from './ChartPanel.module.css';
 
 interface ChartPanelProps {
@@ -452,6 +454,7 @@ export function ChartPanel({
   };
 
   const hasSeries = panel.series.length > 0;
+  const { dispatch } = useApp();
 
   return (
     <div
@@ -464,31 +467,66 @@ export function ChartPanel({
       {/* ── Toolbar ── */}
       <div className={styles.toolbar}>
         <div className={styles.seriesList}>
-          {!hasSeries ? (
-            <span className={styles.emptyHint}>從左側拖曳欄位至此繪圖</span>
+          {panel.type === 'chart' ? (
+            !hasSeries ? (
+              <span className={styles.emptyHint}>從左側拖曳欄位至此繪圖</span>
+            ) : (
+              panel.series.map((s, i) => (
+                <div
+                  key={i}
+                  className={styles.seriesTag}
+                  style={{ '--c': s.color } as React.CSSProperties}
+                >
+                  <span className={styles.seriesDot} />
+                  <span className={styles.seriesLabel} title={`${s.topicName}.${s.fieldName}`}>
+                    {s.topicName}.<b>{s.fieldName}</b>
+                  </span>
+                  <button
+                    className={styles.seriesRemove}
+                    onClick={() => onRemoveSeries?.(i)}
+                    title="移除此數據"
+                  >×</button>
+                </div>
+              ))
+            )
           ) : (
-            panel.series.map((s, i) => (
-              <div
-                key={i}
-                className={styles.seriesTag}
-                style={{ '--c': s.color } as React.CSSProperties}
-              >
-                <span className={styles.seriesDot} />
-                <span className={styles.seriesLabel} title={`${s.topicName}.${s.fieldName}`}>
-                  {s.topicName}.<b>{s.fieldName}</b>
-                </span>
-                <button
-                  className={styles.seriesRemove}
-                  onClick={() => onRemoveSeries?.(i)}
-                  title="移除此數據"
-                >×</button>
-              </div>
-            ))
+            <span className={styles.activePanelLabel}>
+              {panel.type === 'attitude3d' ? '🛸 3D 姿態觀測器' : '✈️ AHRS 航空儀表'}
+            </span>
           )}
         </div>
 
         {/* 右側操作按鈕 */}
         <div className={styles.actions}>
+          {/* 版面內容切換按鈕組 */}
+          {panel.type !== 'empty' && (
+            <div className={styles.viewSelector}>
+              <button
+                className={`${styles.viewBtn} ${panel.type === 'chart' ? styles.viewBtnActive : ''}`}
+                onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
+                title="數據圖表"
+              >
+                圖表
+              </button>
+              <button
+                className={`${styles.viewBtn} ${panel.type === 'attitude3d' ? styles.viewBtnActive : ''}`}
+                onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'attitude3d' })}
+                title="3D 姿態"
+              >
+                3D
+              </button>
+              <button
+                className={`${styles.viewBtn} ${panel.type === 'ahrs' ? styles.viewBtnActive : ''}`}
+                onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'ahrs' })}
+                title="航空儀表"
+              >
+                儀表
+              </button>
+            </div>
+          )}
+
+          <div className={styles.actionDivider} />
+
           <button
             className="btn btn--icon btn--ghost"
             onClick={onSplitHoriz}
@@ -525,11 +563,51 @@ export function ChartPanel({
         </div>
       </div>
 
-      {/* ── uPlot 圖表區域 ── */}
-      <div ref={chartAreaRef} className={styles.chartArea} />
+      {/* ── 內容呈現區域 ── */}
+      {panel.type === 'chart' && (
+        <>
+          <div ref={chartAreaRef} className={styles.chartArea} />
+          <div ref={tooltipRef} className={styles.tooltip} style={{ display: 'none' }} />
+        </>
+      )}
 
-      {/* ── 懸浮數據提示框 ── */}
-      <div ref={tooltipRef} className={styles.tooltip} style={{ display: 'none' }} />
+      {panel.type === 'attitude3d' && (
+        <div className={styles.fullInner}>
+          <Attitude3dPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'ahrs' && (
+        <div className={styles.fullInner}>
+          <AhrsPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'empty' && (
+        <div className={styles.emptyChoice}>
+          <div className={styles.choiceTitle}>選擇此區塊顯示的內容</div>
+          <div className={styles.choiceButtons}>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
+            >
+              📊 數據圖表
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'attitude3d' })}
+            >
+              🛸 3D 姿態觀測器
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'ahrs' })}
+            >
+              ✈️ AHRS 航空水平儀
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

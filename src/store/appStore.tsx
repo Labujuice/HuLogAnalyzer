@@ -3,7 +3,7 @@
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
-import type { AppState, PlaybackState, PanelLayout, ULogTopicData, ULogSummary, ChartSeries } from '../types/ulog';
+import type { AppState, PlaybackState, PanelLayout, ULogTopicData, ULogSummary, ChartSeries, PanelType } from '../types/ulog';
 import { CHART_COLORS } from '../types/ulog';
 import { getWorkerBridge } from '../workers/workerBridge';
 
@@ -57,6 +57,7 @@ type Action =
   | { type: 'REMOVE_SERIES_FROM_PANEL'; panelId: string; seriesIdx: number }
   | { type: 'SPLIT_PANEL'; panelId: string; direction: 'row' | 'column' }
   | { type: 'REMOVE_PANEL'; panelId: string }
+  | { type: 'SET_PANEL_TYPE'; panelId: string; panelType: PanelType }
   | { type: 'SET_PLAYBACK'; playback: Partial<PlaybackState> }
   | { type: 'RESET' };
 
@@ -227,6 +228,16 @@ function appReducer(state: AppState, action: Action): AppState {
         'direction' in result
           ? (result as PanelLayout)
           : { direction: 'column', panels: [result as LeafPanel], sizes: [100] };
+      return { ...state, layout: newLayout };
+    }
+
+    case 'SET_PANEL_TYPE': {
+      const { panelId: tId, panelType } = action as { type: 'SET_PANEL_TYPE'; panelId: string; panelType: PanelType };
+      const newLayout = findAndUpdatePanel(state.layout, tId, (panel) => ({
+        ...panel,
+        type: panelType,
+        title: panelType === 'chart' ? '圖表' : panelType === 'attitude3d' ? '3D 姿態' : panelType === 'ahrs' ? '航空儀表' : '空白',
+      }));
       return { ...state, layout: newLayout };
     }
 
