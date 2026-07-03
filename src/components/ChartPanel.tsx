@@ -7,6 +7,7 @@ import { interpolateAt } from '../parser/utils';
 import { timePublisher } from '../store/timePublisher';
 import { Attitude3dPanel } from './Attitude3dPanel';
 import { AhrsPanel } from './AhrsPanel';
+import { MapPanel } from './MapPanel';
 import styles from './ChartPanel.module.css';
 
 interface ChartPanelProps {
@@ -495,7 +496,7 @@ export function ChartPanel({
             )
           ) : (
             <span className={styles.activePanelLabel}>
-              {panel.type === 'attitude3d' ? '🛸 3D 姿態觀測器' : '✈️ AHRS 航空儀表'}
+              {panel.type === 'attitude3d' ? '🛸 3D 姿態觀測器' : panel.type === 'ahrs' ? '✈️ AHRS 航空儀表' : '🗺️ 2D 地圖軌跡'}
             </span>
           )}
         </div>
@@ -525,6 +526,13 @@ export function ChartPanel({
                 title="航空儀表"
               >
                 儀表
+              </button>
+              <button
+                className={`${styles.viewBtn} ${panel.type === 'map' ? styles.viewBtnActive : ''}`}
+                onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'map' })}
+                title="2D 地圖軌跡"
+              >
+                地圖
               </button>
             </div>
           )}
@@ -587,6 +595,12 @@ export function ChartPanel({
         </div>
       )}
 
+      {panel.type === 'map' && (
+        <div className={styles.fullInner}>
+          <MapPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
       {panel.type === 'empty' && (
         <div className={styles.emptyChoice}>
           <div className={styles.choiceTitle}>選擇此區塊顯示的內容</div>
@@ -608,6 +622,12 @@ export function ChartPanel({
               onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'ahrs' })}
             >
               ✈️ AHRS 航空水平儀
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'map' })}
+            >
+              🗺️ 2D 地圖軌跡
             </button>
           </div>
         </div>

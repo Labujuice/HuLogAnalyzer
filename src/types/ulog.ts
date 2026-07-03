@@ -107,7 +107,7 @@ export interface TopicTransferData {
 // 儀表板佈局型別
 // ============================================================
 
-export type PanelType = 'chart' | 'attitude3d' | 'ahrs' | 'metadata' | 'messages' | 'empty';
+export type PanelType = 'chart' | 'attitude3d' | 'ahrs' | 'metadata' | 'messages' | 'empty' | 'map';
 
 export interface ChartSeries {
   topicName: string;
