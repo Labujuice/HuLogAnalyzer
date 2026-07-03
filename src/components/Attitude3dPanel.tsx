@@ -232,22 +232,22 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     });
 
     // 5. Initialize Path Lines
-    // 尚未飛過的未來航線 (灰色)
+    // 尚未飛過的未來航線 (黃色)
     const remainingGeom = new THREE.BufferGeometry();
     const remainingMat = new THREE.LineBasicMaterial({
-      color: '#475569', // Slate-600
+      color: '#eab308', // Yellow
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.6,
     });
     const remainingPathLine = new THREE.Line(remainingGeom, remainingMat);
     scene.add(remainingPathLine);
     remainingPathLineRef.current = remainingPathLine;
     remainingGeomRef.current = remainingGeom;
 
-    // 播放中已飛過的發光航線
+    // 播放中已飛過的發光航線 (紅色)
     const activeGeom = new THREE.BufferGeometry();
     const activeMat = new THREE.LineBasicMaterial({
-      color: '#06b6d4', // Cyan 發光色
+      color: '#ef4444', // Red
       linewidth: 2,
     });
     const activePathLine = new THREE.Line(activeGeom, activeMat);

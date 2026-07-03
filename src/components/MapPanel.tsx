@@ -168,17 +168,17 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     // 3. Create Flight Path Polylines
-    // 尚未飛過的未來航線 (灰色虛線)
+    // 尚未飛過的未來航線 (黃色虛線)
     const remainingPathPoly = L.polyline([], {
-      color: '#64748b', // Slate grey
+      color: '#eab308', // Yellow
       weight: 3,
-      opacity: 0.6,
+      opacity: 0.8,
       dashArray: '6, 6',
     }).addTo(map);
     remainingPathPolyRef.current = remainingPathPoly;
 
     const activePathPoly = L.polyline([], {
-      color: '#06b6d4', // Cyan active line (已飛過)
+      color: '#ef4444', // Red (已飛過)
       weight: 4,
       opacity: 0.9,
     }).addTo(map);
