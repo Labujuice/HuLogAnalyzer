@@ -4,6 +4,7 @@ import 'uplot/dist/uPlot.min.css';
 import { useApp } from '../store/appStore';
 import type { ChartSeries, Panel, PanelType } from '../types/ulog';
 import { interpolateAt } from '../parser/utils';
+import { timePublisher } from '../store/timePublisher';
 import { Attitude3dPanel } from './Attitude3dPanel';
 import { AhrsPanel } from './AhrsPanel';
 import styles from './ChartPanel.module.css';
@@ -126,7 +127,7 @@ export function ChartPanel({
           (u: uPlot) => {
             // 播放時間線
             const startUs = state.summary?.startTimestampUs ?? 0;
-            const timeSec = (currentTimeUs - startUs) / 1e6;
+            const timeSec = (timePublisher.getTime() - startUs) / 1e6;
             const cx = u.valToPos(timeSec, 'x', true);
             const inRange = cx >= u.bbox.left && cx <= u.bbox.left + u.bbox.width;
             if (!inRange) return;
@@ -222,7 +223,7 @@ export function ChartPanel({
         ]
       },
     };
-  }, [panel.series, currentTimeUs, state.summary]);
+  }, [panel.series, state.summary]);
 
   // ─── 取得正確的圖表尺寸（扣除 toolbar）────────────────────────────────────
   const getChartSize = useCallback(() => {
@@ -376,10 +377,13 @@ export function ChartPanel({
     };
   }, [rebuildChart]);
 
-  // 播放線更新（只 redraw，不重建）
+  // 訂閱 timePublisher 觸發高頻重繪播放線，完全不需 React re-render
   useEffect(() => {
-    chartRef.current?.redraw(false);
-  }, [currentTimeUs]);
+    const unsubscribe = timePublisher.subscribe(() => {
+      chartRef.current?.redraw(false);
+    });
+    return unsubscribe;
+  }, []);
 
   // ─── 快捷鍵復原縮放 (Esc / R) ──────────────────────────────────────────────
   useEffect(() => {

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useApp } from '../store/appStore';
 import { interpolateAt } from '../parser/utils';
+import { timePublisher } from '../store/timePublisher';
 import styles from './AhrsPanel.module.css';
 
 interface AhrsPanelProps {
@@ -32,8 +33,8 @@ export function AhrsPanel({ panelId, currentTimeUs }: AhrsPanelProps) {
     }
   }, [attTopic, state.topicCache, requestTopicData]);
 
-  // Interpolate Roll and Pitch from state cache
-  const getAttitudeAngles = useCallback((): { roll: number; pitch: number; yaw: number } | null => {
+  // Interpolate Roll and Pitch from state cache at specific timeUs
+  const getAttitudeAnglesAt = useCallback((timeUs: number): { roll: number; pitch: number; yaw: number } | null => {
     if (!attTopic) return null;
     const key = `${attTopic.name}:${attTopic.multiId}`;
     const data = state.topicCache[key];
@@ -51,21 +52,21 @@ export function AhrsPanel({ panelId, currentTimeUs }: AhrsPanelProps) {
       const qz = data.fields['q_z'] || data.fields['q.z'] || data.fields['q_3'];
       if (!qw || !qx || !qy || !qz) return null;
 
-      const q0 = interpolateAt(data.timestamps, qw, currentTimeUs);
-      const q1 = interpolateAt(data.timestamps, qx, currentTimeUs);
-      const q2 = interpolateAt(data.timestamps, qy, currentTimeUs);
-      const q3 = interpolateAt(data.timestamps, qz, currentTimeUs);
+      const q0 = interpolateAt(data.timestamps, qw, timeUs);
+      const q1 = interpolateAt(data.timestamps, qx, timeUs);
+      const q2 = interpolateAt(data.timestamps, qy, timeUs);
+      const q3 = interpolateAt(data.timestamps, qz, timeUs);
 
       return quatToEuler(q0, q1, q2, q3);
     }
 
-    const q0 = interpolateAt(data.timestamps, q0Arr, currentTimeUs);
-    const q1 = interpolateAt(data.timestamps, q1Arr, currentTimeUs);
-    const q2 = interpolateAt(data.timestamps, q2Arr, currentTimeUs);
-    const q3 = interpolateAt(data.timestamps, q3Arr, currentTimeUs);
+    const q0 = interpolateAt(data.timestamps, q0Arr, timeUs);
+    const q1 = interpolateAt(data.timestamps, q1Arr, timeUs);
+    const q2 = interpolateAt(data.timestamps, q2Arr, timeUs);
+    const q3 = interpolateAt(data.timestamps, q3Arr, timeUs);
 
     return quatToEuler(q0, q1, q2, q3);
-  }, [attTopic, state.topicCache, currentTimeUs]);
+  }, [attTopic, state.topicCache]);
 
   // Draw AHRS on Canvas
   useEffect(() => {
@@ -82,7 +83,8 @@ export function AhrsPanel({ panelId, currentTimeUs }: AhrsPanelProps) {
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
 
-      const angles = getAttitudeAngles() || { roll: 0, pitch: 0, yaw: 0 };
+      const currentTimeUs = timePublisher.getTime();
+      const angles = getAttitudeAnglesAt(currentTimeUs) || { roll: 0, pitch: 0, yaw: 0 };
       const roll = angles.roll;     // radians
       const pitch = angles.pitch;   // radians
 
@@ -243,7 +245,7 @@ export function AhrsPanel({ panelId, currentTimeUs }: AhrsPanelProps) {
       cancelAnimationFrame(animId);
       ro.disconnect();
     };
-  }, [hasAttitude, getAttitudeAngles]);
+  }, [hasAttitude, getAttitudeAnglesAt]);
 
   if (!hasAttitude) {
     return (

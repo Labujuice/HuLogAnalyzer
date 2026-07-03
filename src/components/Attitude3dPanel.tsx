@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { useApp } from '../store/appStore';
 import { interpolateAt } from '../parser/utils';
+import { timePublisher } from '../store/timePublisher';
 import styles from './Attitude3dPanel.module.css';
 
 interface Attitude3dPanelProps {
@@ -62,7 +63,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   }, [attTopic, posTopic, state.topicCache, requestTopicData]);
 
   // Interpolate Roll, Pitch, Yaw from quaternion in state cache
-  const getAttitudeAngles = useCallback((): { roll: number; pitch: number; yaw: number } | null => {
+  const getAttitudeAnglesAt = useCallback((timeUs: number): { roll: number; pitch: number; yaw: number } | null => {
     if (!attTopic) return null;
     const key = `${attTopic.name}:${attTopic.multiId}`;
     const data = state.topicCache[key];
@@ -80,24 +81,24 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       const qz = data.fields['q_z'] || data.fields['q.z'] || data.fields['q_3'];
       if (!qw || !qx || !qy || !qz) return null;
 
-      const q0 = interpolateAt(data.timestamps, qw, currentTimeUs);
-      const q1 = interpolateAt(data.timestamps, qx, currentTimeUs);
-      const q2 = interpolateAt(data.timestamps, qy, currentTimeUs);
-      const q3 = interpolateAt(data.timestamps, qz, currentTimeUs);
+      const q0 = interpolateAt(data.timestamps, qw, timeUs);
+      const q1 = interpolateAt(data.timestamps, qx, timeUs);
+      const q2 = interpolateAt(data.timestamps, qy, timeUs);
+      const q3 = interpolateAt(data.timestamps, qz, timeUs);
 
       return quatToEuler(q0, q1, q2, q3);
     }
 
-    const q0 = interpolateAt(data.timestamps, q0Arr, currentTimeUs);
-    const q1 = interpolateAt(data.timestamps, q1Arr, currentTimeUs);
-    const q2 = interpolateAt(data.timestamps, q2Arr, currentTimeUs);
-    const q3 = interpolateAt(data.timestamps, q3Arr, currentTimeUs);
+    const q0 = interpolateAt(data.timestamps, q0Arr, timeUs);
+    const q1 = interpolateAt(data.timestamps, q1Arr, timeUs);
+    const q2 = interpolateAt(data.timestamps, q2Arr, timeUs);
+    const q3 = interpolateAt(data.timestamps, q3Arr, timeUs);
 
     return quatToEuler(q0, q1, q2, q3);
-  }, [attTopic, state.topicCache, currentTimeUs]);
+  }, [attTopic, state.topicCache]);
 
   // Interpolate Position from local position in state cache
-  const getPosition = useCallback((): { x: number; y: number; z: number; points: THREE.Vector3[] } | null => {
+  const getPositionAt = useCallback((timeUs: number): { x: number; y: number; z: number; points: THREE.Vector3[] } | null => {
     if (!posTopic) return null;
     const key = `${posTopic.name}:${posTopic.multiId}`;
     const data = state.topicCache[key];
@@ -113,9 +114,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     const startY = yArr[0] ?? 0;
     const startZ = zArr[0] ?? 0;
 
-    const xVal = interpolateAt(data.timestamps, xArr, currentTimeUs);
-    const yVal = interpolateAt(data.timestamps, yArr, currentTimeUs);
-    const zVal = interpolateAt(data.timestamps, zArr, currentTimeUs);
+    const xVal = interpolateAt(data.timestamps, xArr, timeUs);
+    const yVal = interpolateAt(data.timestamps, yArr, timeUs);
+    const zVal = interpolateAt(data.timestamps, zArr, timeUs);
 
     // NED 轉 WebGL 座標系映射
     const currentPos = {
@@ -134,7 +135,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     }
 
     return { ...currentPos, points };
-  }, [posTopic, state.topicCache, currentTimeUs]);
+  }, [posTopic, state.topicCache]);
 
   // Setup Three.js Scene
   useEffect(() => {
@@ -311,44 +312,53 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     };
   }, [hasAttitude, state.playback.isPlaying]);
 
-  // Sync Drone Position, Rotation & Path lines
+  // 訂閱 timePublisher 實時更新無人機位置、姿態與軌跡，完全不需 React re-render
   useEffect(() => {
-    if (!droneRef.current) return;
+    const updateAttitudeAndPosition = (timeUs: number) => {
+      if (!droneRef.current) return;
 
-    // 1. 更新姿態旋轉
-    const angles = getAttitudeAngles();
-    if (angles) {
-      droneRef.current.rotation.set(angles.pitch, -angles.yaw, -angles.roll, 'YXZ');
-    }
-
-    // 2. 更新位置與軌跡線
-    const pos = getPosition();
-    if (pos) {
-      droneRef.current.position.set(pos.x, pos.y, pos.z);
-
-      // 初始化背景全局虛線軌跡
-      if (fullPathLineRef.current && fullPathLineRef.current.geometry.getAttribute('position') === undefined) {
-        fullPathLineRef.current.geometry.setFromPoints(pos.points);
+      // 1. 更新姿態旋轉
+      const angles = getAttitudeAnglesAt(timeUs);
+      if (angles) {
+        droneRef.current.rotation.set(angles.pitch, -angles.yaw, -angles.roll, 'YXZ');
       }
 
-      // 更新目前已飛過的時間點軌跡點 (二分搜尋找最接近目前播放時間點的索引)
-      if (activeGeomRef.current && posTopic) {
-        const key = `${posTopic.name}:${posTopic.multiId}`;
-        const data = state.topicCache[key];
-        if (data) {
-          let lo = 0;
-          let hi = data.timestamps.length - 1;
-          while (lo < hi) {
-            const mid = (lo + hi) >>> 1;
-            if (data.timestamps[mid] < currentTimeUs) lo = mid + 1;
-            else hi = mid;
+      // 2. 更新位置與軌跡線
+      const pos = getPositionAt(timeUs);
+      if (pos) {
+        droneRef.current.position.set(pos.x, pos.y, pos.z);
+
+        // 初始化背景全局虛線軌跡
+        if (fullPathLineRef.current && fullPathLineRef.current.geometry.getAttribute('position') === undefined) {
+          fullPathLineRef.current.geometry.setFromPoints(pos.points);
+        }
+
+        // 更新目前已飛過的時間點軌跡點
+        if (activeGeomRef.current && posTopic) {
+          const key = `${posTopic.name}:${posTopic.multiId}`;
+          const data = state.topicCache[key];
+          if (data) {
+            let lo = 0;
+            let hi = data.timestamps.length - 1;
+            while (lo < hi) {
+              const mid = (lo + hi) >>> 1;
+              if (data.timestamps[mid] < timeUs) lo = mid + 1;
+              else hi = mid;
+            }
+            const activePoints = pos.points.slice(0, lo + 1);
+            activeGeomRef.current.setFromPoints(activePoints);
           }
-          const activePoints = pos.points.slice(0, lo + 1);
-          activeGeomRef.current.setFromPoints(activePoints);
         }
       }
-    }
-  }, [currentTimeUs, getAttitudeAngles, getPosition, posTopic, state.topicCache]);
+    };
+
+    const unsubscribe = timePublisher.subscribe(updateAttitudeAndPosition);
+
+    // 初始對齊
+    updateAttitudeAndPosition(timePublisher.getTime());
+
+    return unsubscribe;
+  }, [getAttitudeAnglesAt, getPositionAt, posTopic, state.topicCache]);
 
   // 滑鼠拖曳旋轉視角控制
   const handleMouseDown = (e: React.MouseEvent) => {
