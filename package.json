@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "serve:all": "vite --host 0.0.0.0 --port 5173 & vite preview --host 0.0.0.0 --port 4173",
+    "stop": "fuser -k 5173/tcp 4173/tcp || kill $(lsof -t -i:5173 -i:4173) 2>/dev/null || true",
     "build:wasm": "cd ulog-parser-wasm && wasm-pack build --target web --out-dir ../src/wasm"
   },
   "dependencies": {
