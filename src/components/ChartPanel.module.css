@@ -115,11 +115,6 @@
   min-height: 0;
 }
 
-/* uPlot 覆蓋樣式 */
-.chartArea :global(.u-wrap) {
-  width: 100% !important;
-  height: 100% !important;
-}
 .chartArea :global(.u-over),
 .chartArea :global(.u-under) {
   border-radius: 0;

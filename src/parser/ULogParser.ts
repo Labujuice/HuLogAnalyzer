@@ -263,14 +263,10 @@ export class ULogParser {
     for (const part of fieldStr.split(';')) {
       const trimmed = part.trim();
       if (!trimmed) continue;
-      // 格式: "type[N] name" 或 "type name"
       const spaceIdx = trimmed.lastIndexOf(' ');
       if (spaceIdx < 0) continue;
       const typeStr = trimmed.substring(0, spaceIdx).trim();
-      let name = trimmed.substring(spaceIdx + 1).trim();
-
-      // 跳過 padding 欄位
-      if (name.startsWith('_padding')) continue;
+      const name = trimmed.substring(spaceIdx + 1).trim();
 
       // 解析陣列大小
       let arraySize = 1;
@@ -282,11 +278,43 @@ export class ULogParser {
       }
 
       const fieldType = baseType as ULogFieldType;
-      const unitSize = FIELD_SIZE[fieldType] ?? 1;
-      const byteSize = unitSize * arraySize;
+      const isPrimitive = fieldType in FIELD_SIZE;
+      const nestedFormat = this.formats.get(fieldType);
 
-      fields.push({ name, type: fieldType, arraySize, byteOffset, byteSize });
-      byteOffset += byteSize;
+      if (isPrimitive) {
+        const unitSize = FIELD_SIZE[fieldType];
+        const byteSize = unitSize * arraySize;
+        if (!name.startsWith('_padding')) {
+          fields.push({ name, type: fieldType, arraySize, byteOffset, byteSize });
+        }
+        byteOffset += byteSize;
+      } else if (nestedFormat) {
+        // 巢狀格式：遞迴展開所有欄位
+        const unitSize = nestedFormat.totalSize;
+        const byteSize = unitSize * arraySize;
+
+        // 如果巢狀欄位是陣列，展開為 name[i].subfield
+        for (let a = 0; a < arraySize; a++) {
+          const arrayPrefix = arraySize > 1 ? `${name}[${a}]` : name;
+          for (const nf of nestedFormat.fields) {
+            fields.push({
+              name: `${arrayPrefix}.${nf.name}`,
+              type: nf.type,
+              arraySize: nf.arraySize,
+              byteOffset: byteOffset + a * unitSize + nf.byteOffset,
+              byteSize: nf.byteSize,
+            });
+          }
+        }
+        byteOffset += byteSize;
+      } else {
+        // 兜底處理未知類型（例如 _padding 或是遺失定義的 nested format）
+        const byteSize = arraySize; // 假定大小為 1
+        if (!name.startsWith('_padding')) {
+          fields.push({ name, type: 'uint8_t' as any, arraySize, byteOffset, byteSize });
+        }
+        byteOffset += byteSize;
+      }
     }
 
     const format: ULogFormat = { name: typeName, fields, totalSize: byteOffset };

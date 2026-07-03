@@ -3,6 +3,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useApp } from '../store/appStore';
 import type { ChartSeries, Panel } from '../types/ulog';
+import { interpolateAt } from '../parser/utils';
 import styles from './ChartPanel.module.css';
 
 interface ChartPanelProps {
@@ -47,15 +48,36 @@ export function ChartPanel({
     const xsSec = new Float64Array(xs.length);
     for (let i = 0; i < xs.length; i++) xsSec[i] = (xs[i] - startUs) / 1e6;
 
-    // Y 軸：各 series
-    const yCols: (Float32Array | null)[] = panel.series.map((s) => {
+    // Y 軸：各 series (如果有時間戳不一致，進行線性插值對齊)
+    const yCols: Float32Array[] = [];
+    for (const s of panel.series) {
       const key = `${s.topicName}:${s.multiId}`;
       const topicData = state.topicCache[key];
-      if (!topicData) return null;
+
+      if (!topicData) {
+        // 資料載入中，兜底填充 0 陣列，維持長度對齊
+        yCols.push(new Float32Array(xs.length));
+        continue;
+      }
+
       const ys = topicData.fields[s.fieldName];
-      if (!ys) return null;
-      return ys instanceof Float32Array ? ys : new Float32Array(ys);
-    });
+      if (!ys) {
+        yCols.push(new Float32Array(xs.length));
+        continue;
+      }
+
+      if (topicData.timestamps === xs) {
+        // 同一主題，時間戳參考相同，直接使用
+        yCols.push(ys instanceof Float32Array ? ys : new Float32Array(ys));
+      } else {
+        // 不同主題，利用線性插值對齊到主系列的時間軸 (xs)
+        const alignedYs = new Float32Array(xs.length);
+        for (let i = 0; i < xs.length; i++) {
+          alignedYs[i] = interpolateAt(topicData.timestamps, ys, xs[i]);
+        }
+        yCols.push(alignedYs);
+      }
+    }
 
     return [xsSec, ...yCols] as uPlot.AlignedData;
   }, [panel.series, state.topicCache, state.summary]);

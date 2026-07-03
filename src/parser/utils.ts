@@ -175,7 +175,7 @@ export function sliceByTimeRange(
  */
 export function interpolateAt(
   timestamps: Float64Array,
-  values: Float32Array | Float64Array,
+  values: Float32Array | Float64Array | Int32Array | Int8Array,
   targetUs: number
 ): number {
   if (timestamps.length === 0) return 0;
