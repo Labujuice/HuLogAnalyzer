@@ -141,7 +141,12 @@ To maintain a clean version history, this project enforces strict update log rul
 > 1. **Read Logs First**: Before writing any code, search and read [UPDATE_LOG.md](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/UPDATE_LOG.md) and [UPDATE_LOG_EN.md](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/UPDATE_LOG_EN.md) to parse the current work state.
 > 2. **Identify Current Branch**: Run `git branch` or `git status` to determine the active branch name and its origin parent.
 > 3. **Append Changes Dynamically**: Before finishing the turn or creating a commit, you **MUST** write the details of your modifications to the top section of both `UPDATE_LOG.md` and `UPDATE_LOG_EN.md`. If a new branch was just cut from `main`, you must create the branch section header at the top of the files.
-> 4. **Commit Documentation**: Keep all update log modifications grouped in your final commit. Do not skip document updates.
+> 4. **Enforce Relative Paths**: Ensure all file paths, package outputs, and import statements utilize **relative paths** (`./` or `../`). Absolute paths (e.g. `/assets/...`) are strictly prohibited in code references.
+> 5. **Commit Documentation**: Keep all update log modifications grouped in your final commit. Do not skip document updates.
+
+### 5. 相對路徑制規範 / Relative Path System
+* **TC**: 本專案內所有檔案引用、資源載入、打包路徑與開發路徑，皆必須強制使用**相對路徑**（例如 `./assets/...` 或 `../components/...`），嚴禁使用絕對路徑（例如以 `/` 開頭的路徑）。這可確保編譯後的 `dist/` 靜態檔案可以藉由雙擊 `index.html` 離線直接啟動（點開即用）。
+* **EN**: All file references, resource loading, asset compilation paths, and source code imports in this project MUST strictly use **relative paths** (e.g., `./assets/...` or `../components/...`). Absolute paths (e.g., starting with `/`) are strictly prohibited. This ensures the compiled `dist/index.html` can be double-clicked to run offline directly.
 
 ---
 

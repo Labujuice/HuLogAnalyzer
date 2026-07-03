@@ -21,3 +21,5 @@
   * **⚙️ 開發腳本標準化 (package.json & README.md)**：
     * 新增一鍵開啟 Dev + Preview 的伺服器腳本：`npm run serve:all`。
     * 新增一鍵殺除伺服器占用 Port 的腳本：`npm stop`。
+  * **🛠️ 專案路徑規範 (Relative Path Rule)**：
+    * 建立 `.agents/AGENTS.md` 並在 `README.md` 的開發和 AI Agent 執行規範中加入「強制使用相對路徑制」的規則，確保離線點開即用。

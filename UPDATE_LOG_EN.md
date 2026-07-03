@@ -21,3 +21,5 @@ This file is used to document and manage update items prior to every Merge Reque
   * **⚙️ Development Environment Standardization (package.json & README.md)**:
     * Added a unified script to run both Dev and Preview servers concurrently in the background: `npm run serve:all`.
     * Added a cleanup script to terminate servers and free ports: `npm stop`.
+  * **🛠️ Pathing Specifications (Relative Path Rule)**:
+    * Created `.agents/AGENTS.md` and added "Relative Paths Rule" in the development guidelines and AI Agent execution protocols to enforce relative pathing globally, guaranteeing double-click offline execution.
