@@ -207,12 +207,7 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
       if (arrow) markerIconRef.current = arrow;
     }
 
-    // 5. Fit Bounds once the entire path becomes available
-    const gpsData = getGpsData();
-    if (gpsData && gpsData.points.length > 0) {
-      const bounds = L.latLngBounds(gpsData.points);
-      map.fitBounds(bounds, { padding: [30, 30] });
-    }
+    // 5. Fit Bounds once the entire path becomes available (removed static from init, handled reactively below)
 
     // 6. Resize Observer
     const ro = new ResizeObserver(() => {
@@ -226,6 +221,22 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
       mapRef.current = null;
     };
   }, [hasGps]);
+
+  const hasFittedBoundsRef = useRef<boolean>(false);
+
+  // 實時自動縮放至完整視野（資料載入完成時執行且僅執行一次）
+  useEffect(() => {
+    if (hasFittedBoundsRef.current) return;
+    const map = mapRef.current;
+    if (!map) return;
+
+    const gpsData = getGpsData();
+    if (gpsData && gpsData.points.length > 0) {
+      const bounds = L.latLngBounds(gpsData.points);
+      map.fitBounds(bounds, { padding: [30, 30] });
+      hasFittedBoundsRef.current = true;
+    }
+  }, [state.topicCache, getGpsData]);
 
   // Handle Tile Layer Switch
   useEffect(() => {

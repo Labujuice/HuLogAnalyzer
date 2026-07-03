@@ -17,6 +17,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   // Three.js instances
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const droneRef = useRef<THREE.Group | null>(null);
   const remainingPathLineRef = useRef<THREE.Line | null>(null);
   const remainingGeomRef = useRef<THREE.BufferGeometry | null>(null);
@@ -27,9 +28,18 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const cameraTheta = useRef<number>(Math.PI / 4);
   const cameraPhi = useRef<number>(Math.PI / 3);
   const cameraRadius = useRef<number>(6);
+  const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
+
+  // Follow mode state
+  const [isFollowing, setIsFollowing] = useState<boolean>(true);
+  const isFollowingRef = useRef<boolean>(true);
+  useEffect(() => {
+    isFollowingRef.current = isFollowing;
+  }, [isFollowing]);
 
   // Drag state
   const isDragging = useRef<boolean>(false);
+  const dragMode = useRef<'none' | 'rotate' | 'pan'>('none');
   const lastMouseX = useRef<number>(0);
   const lastMouseY = useRef<number>(0);
 
@@ -152,6 +162,8 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 500);
+    cameraRef.current = camera;
+
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -270,14 +282,18 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         });
       }
 
-      // 相機跟隨無人機 (位置平滑插值 Lerp)
-      const dronePos = droneGroup.position;
-      const targetX = dronePos.x + cameraRadius.current * Math.sin(cameraPhi.current) * Math.sin(cameraTheta.current);
-      const targetY = dronePos.y + cameraRadius.current * Math.cos(cameraPhi.current);
-      const targetZ = dronePos.z + cameraRadius.current * Math.sin(cameraPhi.current) * Math.cos(cameraTheta.current);
+      // 相機焦點平滑跟隨
+      const target = cameraTargetRef.current;
+      if (isFollowingRef.current && droneGroup) {
+        target.copy(droneGroup.position);
+      }
+
+      const targetX = target.x + cameraRadius.current * Math.sin(cameraPhi.current) * Math.sin(cameraTheta.current);
+      const targetY = target.y + cameraRadius.current * Math.cos(cameraPhi.current);
+      const targetZ = target.z + cameraRadius.current * Math.sin(cameraPhi.current) * Math.cos(cameraTheta.current);
 
       camera.position.lerp(new THREE.Vector3(targetX, targetY, targetZ), 0.15);
-      camera.lookAt(dronePos);
+      camera.lookAt(target);
 
       if (rendererRef.current && sceneRef.current) {
         rendererRef.current.render(sceneRef.current, camera);
@@ -311,10 +327,11 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         container.removeChild(rendererRef.current.domElement);
       }
       scene.clear();
+      cameraRef.current = null;
     };
   }, [hasAttitude, state.playback.isPlaying]);
 
-  // 訂閱 timePublisher 實時更新無人機位置、姿態與軌跡，完全不需 React re-render
+  // 訂閱 timePublisher 實實更新無人機位置、姿態與軌跡，完全不需 React re-render
   useEffect(() => {
     const updateAttitudeAndPosition = (timeUs: number) => {
       if (!droneRef.current) return;
@@ -367,9 +384,16 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     return unsubscribe;
   }, [getAttitudeAnglesAt, getPositionAt, posTopic, state.topicCache]);
 
-  // 滑鼠拖曳旋轉視角控制
+  // 滑鼠拖曳控制（左鍵旋轉、中鍵平移）
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0) {
+    if (e.button === 0) { // Left click: Rotate
+      dragMode.current = 'rotate';
+      isDragging.current = true;
+      lastMouseX.current = e.clientX;
+      lastMouseY.current = e.clientY;
+    } else if (e.button === 1) { // Middle click: Pan
+      e.preventDefault(); // 阻擋中鍵瀏覽器自動滾動
+      dragMode.current = 'pan';
       isDragging.current = true;
       lastMouseX.current = e.clientX;
       lastMouseY.current = e.clientY;
@@ -383,12 +407,26 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     lastMouseX.current = e.clientX;
     lastMouseY.current = e.clientY;
 
-    cameraTheta.current -= deltaX * 0.006;
-    cameraPhi.current = Math.max(0.05, Math.min(Math.PI / 2 - 0.02, cameraPhi.current - deltaY * 0.006));
+    if (dragMode.current === 'rotate') {
+      cameraTheta.current -= deltaX * 0.006;
+      cameraPhi.current = Math.max(0.05, Math.min(Math.PI / 2 - 0.02, cameraPhi.current - deltaY * 0.006));
+    } else if (dragMode.current === 'pan' && cameraRef.current) {
+      // 一旦進行手動平移，立即脫離跟隨鎖定狀態
+      setIsFollowing(false);
+
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cameraRef.current.quaternion);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cameraRef.current.quaternion);
+      
+      // 根據相機縮放半徑決定平移灵敏度
+      const factor = cameraRadius.current * 0.0015;
+      cameraTargetRef.current.addScaledVector(right, -deltaX * factor);
+      cameraTargetRef.current.addScaledVector(up, deltaY * factor);
+    }
   };
 
   const handleMouseUp = () => {
     isDragging.current = false;
+    dragMode.current = 'none';
   };
 
   if (!hasAttitude) {
@@ -411,6 +449,23 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       style={{ cursor: isDragging.current ? 'grabbing' : 'grab' }}
     >
       <div className={styles.panelTitle}>3D 實時姿態與航線軌跡觀測器</div>
+
+      {/* 恢復跟隨按鈕 */}
+      {!isFollowing && (
+        <button
+          className={styles.resetFollowBtn}
+          onClick={() => {
+            setIsFollowing(true);
+            if (droneRef.current) {
+              cameraTargetRef.current.copy(droneRef.current.position);
+            }
+          }}
+          title="恢復視角跟隨無人機"
+        >
+          📍 恢復跟隨
+        </button>
+      )}
+
       <div ref={mountRef} className={styles.canvasContainer} />
     </div>
   );

@@ -46,3 +46,28 @@
   font-family: var(--font-sans);
   background: var(--clr-bg-surface);
 }
+
+.resetFollowBtn {
+  position: absolute;
+  bottom: var(--sp-3);
+  right: var(--sp-3);
+  z-index: 10;
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--clr-text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all var(--transition-fast);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.resetFollowBtn:hover {
+  color: var(--clr-text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
