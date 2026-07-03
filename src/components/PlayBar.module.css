@@ -1,0 +1,149 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  background: var(--clr-bg-surface);
+  border-top: 1px solid var(--clr-border);
+  flex-shrink: 0;
+}
+
+/* ─── Progress Bar ─── */
+.progressWrap {
+  height: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+  position: relative;
+}
+
+.progressTrack {
+  height: 4px;
+  background: var(--clr-bg-elevated);
+  margin: 0 var(--sp-4);
+  border-radius: 2px;
+  position: relative;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #a78bfa);
+  border-radius: 2px;
+  transition: width 50ms linear;
+}
+
+.progressThumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(59,130,246,0.6), 0 1px 3px rgba(0,0,0,0.5);
+  transition: left 50ms linear;
+}
+
+/* ─── Controls ─── */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4) var(--sp-2);
+  height: calc(var(--playbar-height) - 12px);
+}
+
+.playButtons {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* ─── Time Display ─── */
+.timeDisplay {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 220px;
+}
+
+.currentTime {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--clr-text-accent);
+}
+
+.timeSep {
+  color: var(--clr-text-muted);
+}
+
+.totalTime {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--clr-text-muted);
+}
+
+/* ─── Speed Buttons ─── */
+.speedGroup {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.speedBtn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.speedActive {
+  background: var(--clr-bg-active) !important;
+  color: var(--clr-text-accent) !important;
+  border-color: var(--clr-border-strong) !important;
+}
+
+/* ─── UTC Toggle ─── */
+.utcToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.utcLabel {
+  font-size: 11px;
+  color: var(--clr-text-muted);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+.toggle {
+  width: 32px;
+  height: 18px;
+  background: var(--clr-bg-elevated);
+  border: 1px solid var(--clr-border-strong);
+  border-radius: 9px;
+  position: relative;
+  cursor: pointer;
+  transition: background var(--transition-base), border-color var(--transition-base);
+}
+
+.toggleOn {
+  background: var(--clr-accent);
+  border-color: var(--clr-accent);
+}
+
+.toggleThumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform var(--transition-base);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.toggleOn .toggleThumb {
+  transform: translateX(14px);
+}

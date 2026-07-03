@@ -1,0 +1,221 @@
+.root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--clr-bg-base);
+}
+
+/* ─── 背景裝飾 ─── */
+.bgGrid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+.bgGlow1 {
+  position: absolute;
+  top: -20%;
+  left: -10%;
+  width: 60%;
+  height: 60%;
+  background: radial-gradient(ellipse, rgba(59,130,246,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.bgGlow2 {
+  position: absolute;
+  bottom: -20%;
+  right: -10%;
+  width: 50%;
+  height: 50%;
+  background: radial-gradient(ellipse, rgba(167,139,250,0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* ─── 主內容 ─── */
+.content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-8);
+  width: 100%;
+  max-width: 680px;
+  padding: var(--sp-8) var(--sp-4);
+  animation: fadeIn 0.6s ease;
+}
+
+/* ─── Hero ─── */
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  text-align: center;
+}
+
+.logoWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.logoIcon {
+  width: 64px;
+  height: 64px;
+  filter: drop-shadow(0 0 16px rgba(59,130,246,0.5));
+  animation: spin 20s linear infinite;
+}
+
+.logoText {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.logoMain {
+  font-size: 2.4rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.02em;
+}
+
+.logoSub {
+  font-size: 1rem;
+  font-weight: 400;
+  color: var(--clr-text-secondary);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.tagline {
+  font-size: 1rem;
+  color: var(--clr-text-secondary);
+  line-height: 1.8;
+}
+
+.tagline span {
+  color: var(--clr-text-muted);
+  font-size: 0.875rem;
+}
+
+/* ─── Drop Zone ─── */
+.dropZone {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-8) var(--sp-6);
+  background: var(--clr-bg-surface);
+  border: 2px dashed var(--clr-border-strong);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  animation: borderGlow 3s ease infinite;
+}
+
+.dropZone:hover {
+  background: var(--clr-bg-elevated);
+  border-color: var(--clr-accent);
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-2px);
+}
+
+.dropZone.dragOver {
+  background: rgba(59,130,246,0.08);
+  border-color: var(--clr-accent);
+  border-style: solid;
+  box-shadow: 0 0 40px rgba(59,130,246,0.25);
+  transform: scale(1.01);
+}
+
+.dropIcon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--clr-accent);
+  opacity: 0.8;
+}
+
+.dropIcon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.dropText {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--clr-text-primary);
+}
+
+.dropSubText {
+  font-size: 0.85rem;
+  color: var(--clr-text-secondary);
+}
+
+.dropHint {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: var(--sp-2);
+}
+
+/* ─── Feature Cards ─── */
+.features {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sp-3);
+  width: 100%;
+}
+
+.featureCard {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--clr-bg-surface);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-base), transform var(--transition-base);
+}
+
+.featureCard:hover {
+  border-color: var(--clr-border-strong);
+  transform: translateY(-2px);
+}
+
+.featureIcon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.featureTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--clr-text-primary);
+  margin-bottom: 2px;
+}
+
+.featureDesc {
+  font-size: 0.8rem;
+  color: var(--clr-text-secondary);
+  line-height: 1.4;
+}

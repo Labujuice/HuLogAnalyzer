@@ -1,0 +1,307 @@
+/* ============================================================
+   PX4 ULog Analyzer — 全域設計系統
+   暗色科技感主題，以深邃的午夜藍為基調
+   ============================================================ */
+
+/* ─── 設計 Token ─────────────────────────────────────────── */
+:root {
+  /* 主色調 */
+  --clr-bg-base:        #020817;  /* 最深底色 */
+  --clr-bg-surface:     #0d1526;  /* 卡片/面板底色 */
+  --clr-bg-elevated:    #111d35;  /* 懸浮/抬升元素 */
+  --clr-bg-hover:       #162040;  /* hover 背景 */
+  --clr-bg-active:      #1a2850;  /* active 背景 */
+
+  /* 邊框 */
+  --clr-border:         rgba(59, 130, 246, 0.15);
+  --clr-border-strong:  rgba(59, 130, 246, 0.35);
+  --clr-border-glow:    rgba(59, 130, 246, 0.6);
+
+  /* 文字 */
+  --clr-text-primary:   #e2e8f0;
+  --clr-text-secondary: #94a3b8;
+  --clr-text-muted:     #475569;
+  --clr-text-accent:    #60a5fa;
+
+  /* 強調色 */
+  --clr-accent:         #3b82f6;   /* 藍 */
+  --clr-accent-glow:    rgba(59, 130, 246, 0.25);
+  --clr-success:        #34d399;   /* 綠 */
+  --clr-warning:        #f59e0b;   /* 琥珀 */
+  --clr-danger:         #f87171;   /* 紅 */
+  --clr-info:           #38bdf8;   /* 天藍 */
+
+  /* 圖表顏色（依序使用）*/
+  --chart-c0: #60a5fa;
+  --chart-c1: #34d399;
+  --chart-c2: #f59e0b;
+  --chart-c3: #f87171;
+  --chart-c4: #a78bfa;
+  --chart-c5: #38bdf8;
+
+  /* 間距 */
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-6: 1.5rem;
+  --sp-8: 2rem;
+
+  /* 圓角 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* 陰影 */
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg:  0 8px 32px rgba(0,0,0,0.6);
+  --shadow-glow: 0 0 20px rgba(59, 130, 246, 0.2);
+
+  /* 動畫 */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 350ms ease;
+
+  /* 字型 */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* 側邊欄寬度 */
+  --sidebar-width: 280px;
+  --topbar-height: 48px;
+  --playbar-height: 64px;
+}
+
+/* ─── Reset & Base ───────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--clr-text-primary);
+  background-color: var(--clr-bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── 捲動條美化 ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.6); }
+
+/* ─── 通用元件 ───────────────────────────────────────────── */
+
+/* 按鈕 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius-sm);
+  background: var(--clr-bg-elevated);
+  color: var(--clr-text-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast),
+              box-shadow var(--transition-fast), transform var(--transition-fast);
+  white-space: nowrap;
+  user-select: none;
+}
+.btn:hover {
+  background: var(--clr-bg-hover);
+  border-color: var(--clr-border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.btn:active { transform: translateY(0); }
+
+.btn--primary {
+  background: var(--clr-accent);
+  border-color: var(--clr-accent);
+  color: #fff;
+}
+.btn--primary:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+  box-shadow: 0 0 16px var(--clr-accent-glow);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.btn--ghost:hover {
+  background: var(--clr-bg-hover);
+  border-color: var(--clr-border);
+}
+
+.btn--icon {
+  padding: var(--sp-2);
+  min-width: 30px;
+  justify-content: center;
+}
+
+/* 徽章 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+.badge--blue   { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+.badge--green  { background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3); }
+.badge--amber  { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+.badge--red    { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
+.badge--gray   { background: rgba(100,116,139,0.15); color: #94a3b8; border: 1px solid rgba(100,116,139,0.3); }
+
+/* 卡片 */
+.card {
+  background: var(--clr-bg-surface);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* 分隔線 */
+.divider {
+  border: none;
+  border-top: 1px solid var(--clr-border);
+  margin: var(--sp-3) 0;
+}
+
+/* 文字工具 */
+.text-muted  { color: var(--clr-text-muted); }
+.text-accent { color: var(--clr-text-accent); }
+.text-mono   { font-family: var(--font-mono); }
+
+/* Glow 效果（用於重要數字）*/
+.glow-blue { text-shadow: 0 0 10px rgba(59,130,246,0.6); }
+.glow-green { text-shadow: 0 0 10px rgba(52,211,153,0.6); }
+
+/* ─── 動畫關鍵幀 ─────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes borderGlow {
+  0%, 100% { border-color: rgba(59,130,246,0.3); }
+  50%       { border-color: rgba(59,130,246,0.8); box-shadow: 0 0 20px rgba(59,130,246,0.2); }
+}
+@keyframes scanline {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+/* ─── 工具：Skeleton Loading ─────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--clr-bg-elevated) 25%,
+    var(--clr-bg-hover) 50%,
+    var(--clr-bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── 面板 Resize 把手 ──────────────────────────────────── */
+.resize-handle {
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+}
+.resize-handle--col {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+.resize-handle--row {
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+.resize-handle--col:hover,
+.resize-handle--col.active {
+  background: var(--clr-accent);
+  box-shadow: 0 0 8px var(--clr-accent-glow);
+}
+.resize-handle--row:hover,
+.resize-handle--row.active {
+  background: var(--clr-accent);
+  box-shadow: 0 0 8px var(--clr-accent-glow);
+}
+
+/* ─── 捲動容器 ───────────────────────────────────────────── */
+.scroll-y {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.scroll-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* ─── Tooltip ────────────────────────────────────────────── */
+[data-tooltip] {
+  position: relative;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--clr-bg-elevated);
+  color: var(--clr-text-primary);
+  border: 1px solid var(--clr-border-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  z-index: 1000;
+}
+[data-tooltip]:hover::after { opacity: 1; }
