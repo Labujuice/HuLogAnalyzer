@@ -75,6 +75,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const gpsTopic = state.summary?.topics.find(
     t => t.name === 'vehicle_gps_position' || t.name === 'vehicle_global_position' || t.name.includes('gps') || t.name.includes('global_position')
   );
+  const motorTopic = state.summary?.topics.find(
+    t => t.name === 'actuator_outputs' || t.name === 'actuator_motors' || t.name.includes('actuator_output') || t.name.includes('actuator_motor')
+  );
 
   const [hasAttitude, setHasAttitude] = useState<boolean>(!!attTopic);
 
@@ -107,7 +110,17 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         requestTopicData(gpsTopic.name, gpsTopic.multiId, ['lat', 'lon']);
       }
     }
-  }, [attTopic, posTopic, gpsTopic, state.topicCache, requestTopicData]);
+
+    if (motorTopic) {
+      const key = `${motorTopic.name}:${motorTopic.multiId}`;
+      if (!state.topicCache[key]) {
+        const motorFields = motorTopic.fields.filter(
+          f => f.startsWith('output[') || f.startsWith('control[') || f.startsWith('output_') || f.startsWith('control_')
+        );
+        requestTopicData(motorTopic.name, motorTopic.multiId, motorFields.length > 0 ? motorFields : motorTopic.fields);
+      }
+    }
+  }, [attTopic, posTopic, gpsTopic, motorTopic, state.topicCache, requestTopicData]);
 
   // Interpolate Roll, Pitch, Yaw from quaternion in state cache
   const getAttitudeAnglesAt = useCallback((timeUs: number): { roll: number; pitch: number; yaw: number } | null => {
@@ -208,6 +221,40 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     return null;
   }, [gpsTopic, state.topicCache]);
 
+  // 獲取馬達輸出轉速平均值（對應螺旋槳轉動速度比例）
+  const getAverageMotorSpeedAt = useCallback((timeUs: number): number => {
+    if (!motorTopic) return 1.0;
+    const key = `${motorTopic.name}:${motorTopic.multiId}`;
+    const data = state.topicCache[key];
+    if (!data) return 1.0;
+
+    const fields = Object.keys(data.fields);
+    const motorFields = fields.filter(
+      f => f.startsWith('output[') || f.startsWith('control[') || f.startsWith('output_') || f.startsWith('control_')
+    );
+    if (motorFields.length === 0) return 1.0;
+
+    let sum = 0;
+    let count = 0;
+    motorFields.forEach(f => {
+      const arr = data.fields[f];
+      if (arr) {
+        sum += interpolateAt(data.timestamps, arr, timeUs);
+        count++;
+      }
+    });
+
+    if (count === 0) return 1.0;
+    const avg = sum / count;
+
+    // 若為 PWM 值 (1000 ~ 2000us)
+    if (avg > 500) {
+      return Math.max(0.1, (avg - 1000) / 400); // 歸一化比例
+    }
+    // 若為標準 0.0 ~ 1.0
+    return Math.max(0.1, avg * 2.5);
+  }, [motorTopic, state.topicCache]);
+
   // Setup Three.js Scene
   useEffect(() => {
     if (!mountRef.current || !hasAttitude) return;
@@ -244,7 +291,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 
     // 3. Grid Ground & Axes
     const gridHelper = new THREE.GridHelper(50, 50, '#1e293b', '#0f172a');
-    gridHelper.position.y = -0.01; // 略低於起飛高度，防閃爍
+    gridHelper.position.y = -0.01;
     scene.add(gridHelper);
 
     const axesHelper = new THREE.AxesHelper(2);
@@ -263,7 +310,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     droneRef.current = droneGroup;
 
     // 6. Initialize Path Lines
-    // 尚未飛過的未來航線 (黃色)
     const remainingGeom = new THREE.BufferGeometry();
     const remainingMat = new THREE.LineBasicMaterial({
       color: '#eab308',
@@ -275,7 +321,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     remainingPathLineRef.current = remainingPathLine;
     remainingGeomRef.current = remainingGeom;
 
-    // 播放中已飛過的發光航線 (紅色)
     const activeGeom = new THREE.BufferGeometry();
     const activeMat = new THREE.LineBasicMaterial({
       color: '#ef4444',
@@ -286,7 +331,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     activePathLineRef.current = activePathLine;
     activeGeomRef.current = activeGeom;
 
-    // 地面軌跡投影線 (深藍灰色)
     const groundGeom = new THREE.BufferGeometry();
     const groundMat = new THREE.LineBasicMaterial({
       color: '#475569',
@@ -299,7 +343,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     groundPathLineRef.current = groundPathLine;
     groundGeomRef.current = groundGeom;
 
-    // 垂直投影垂線 (白色虛線)
     const verticalGeom = new THREE.BufferGeometry();
     const verticalLine = new THREE.Line(verticalGeom, new THREE.LineBasicMaterial({
       color: '#ffffff',
@@ -321,7 +364,10 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 
       // 旋轉螺旋槳 / 動態部位
       if (state.playback.isPlaying) {
-        propRot += 0.25 * state.playback.speedMultiplier;
+        const timeUs = timePublisher.getTime();
+        const motorSpeed = getAverageMotorSpeedAt(timeUs); // 獲取平均馬達輸出轉速
+        
+        propRot += 0.25 * state.playback.speedMultiplier * motorSpeed;
         const meshes = animatedMeshesRef.current;
 
         if (currentModelType === 'multirotor') {
@@ -340,8 +386,8 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         } else if (currentModelType === 'eagle') {
           // 展翅翱翔 (雙翅 Z 軸上下擺動)
           const flap = Math.sin(propRot * 0.5) * 0.25;
-          if (meshes[0]) meshes[0].rotation.z = flap;  // 左翼
-          if (meshes[1]) meshes[1].rotation.z = -flap; // 右翼
+          if (meshes[0]) meshes[0].rotation.z = flap;
+          if (meshes[1]) meshes[1].rotation.z = -flap;
         } else if (currentModelType === 'turtle') {
           // 四肢划水 (划動)
           const wiggle = Math.sin(propRot * 0.25) * 0.2;
@@ -403,7 +449,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       }
       rendererRef.current = null;
     };
-  }, [hasAttitude]);
+  }, [hasAttitude, getAverageMotorSpeedAt]);
 
   // Toggle Satellite Visibility Reactively
   useEffect(() => {
@@ -416,7 +462,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   useEffect(() => {
     if (!sceneRef.current || !satelliteGroupRef.current) return;
 
-    // 清空舊貼圖
     while (satelliteGroupRef.current.children.length > 0) {
       satelliteGroupRef.current.remove(satelliteGroupRef.current.children[0]);
     }
@@ -427,7 +472,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     const localPoints = getPositionAt(0)?.points ?? [];
     if (localPoints.length === 0) return;
 
-    // 計算水平航線的最大包絡半徑
     let maxRadius = 100;
     localPoints.forEach((pt) => {
       const dist = Math.sqrt(pt.x * pt.x + pt.z * pt.z);
@@ -438,7 +482,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     const cosLat = Math.cos(lat0);
     const C = 40075016.686;
 
-    // 計算合適的 Google 瓦片 Zoom Level
     const ratio = (1.5 * C * cosLat) / maxRadius;
     let zoom = Math.floor(Math.log2(ratio));
     zoom = Math.max(12, Math.min(19, zoom));
@@ -452,7 +495,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 
     const textureLoader = new THREE.TextureLoader();
 
-    // 載入 3x3 瓦片以覆蓋整個飛行航線
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         const tx = tileX + dx;
@@ -483,7 +525,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     const drone = droneRef.current;
     if (!drone) return;
 
-    // 清空現有子模型
     while (drone.children.length > 0) {
       drone.remove(drone.children[0]);
     }
@@ -531,7 +572,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     labelD.position.set(0, -1.35, 0);
     drone.add(labelD);
 
-    // 清空動態擺動零件的 Reference
     animatedMeshesRef.current = [];
 
     // 2. 構建選擇的模型外型
@@ -554,15 +594,15 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       nose.position.set(0, 0, -0.3);
       drone.add(nose);
 
-      // X 形狀交叉懸臂
-      const armGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.8);
-      armGeom.rotateX(Math.PI / 2);
+      // 使用兩個長方體 (BoxGeometry) 交叉 90 度拼湊出 X 型機臂
+      const armGeom = new THREE.BoxGeometry(0.05, 0.025, 0.85);
+      
       const arm1 = new THREE.Mesh(armGeom, bodyMat);
-      arm1.rotation.y = Math.PI / 4;
+      arm1.rotation.y = Math.PI / 4; // 45度
       drone.add(arm1);
       
       const arm2 = new THREE.Mesh(armGeom, bodyMat);
-      arm2.rotation.y = -Math.PI / 4;
+      arm2.rotation.y = -Math.PI / 4; // -45度 (兩者呈 90 度垂直交叉)
       drone.add(arm2);
 
       // 螺旋槳與馬達組件
@@ -583,28 +623,25 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         prop.position.set(x, 0.11, z);
         drone.add(prop);
         
-        animatedMeshesRef.current.push(prop); // 用於旋轉動畫
+        animatedMeshesRef.current.push(prop); // 用於馬達轉速旋擬動畫
       });
     }
     else if (modelType === 'fixwing') {
-      // ✈️ Fixed Wing Airplane (定翼機)
+      // ✈️ Fixed Wing Airplane
       const planeMat = new THREE.MeshStandardMaterial({ color: '#f1f5f9', roughness: 0.5, metalness: 0.3 });
-      const trimMat = new THREE.MeshStandardMaterial({ color: '#ef4444' }); // 機翼紅色點綴
+      const trimMat = new THREE.MeshStandardMaterial({ color: '#ef4444' });
       const motorMat = new THREE.MeshStandardMaterial({ color: '#1e293b', metalness: 0.9 });
 
-      // 機身圓筒 (指向 Z 軸)
       const fuseGeom = new THREE.CylinderGeometry(0.12, 0.07, 1.2, 8);
       fuseGeom.rotateX(Math.PI / 2);
       const fuselage = new THREE.Mesh(fuseGeom, planeMat);
       drone.add(fuselage);
 
-      // 主機翼 (沿 X 軸延伸)
       const wingGeom = new THREE.BoxGeometry(1.8, 0.02, 0.24);
       const wing = new THREE.Mesh(wingGeom, planeMat);
       wing.position.set(0, 0.05, -0.15);
       drone.add(wing);
 
-      // 紅色翼尖
       const tipGeom = new THREE.BoxGeometry(0.1, 0.04, 0.24);
       const leftTip = new THREE.Mesh(tipGeom, trimMat);
       leftTip.position.set(-0.9, 0.06, -0.15);
@@ -614,58 +651,50 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       rightTip.position.set(0.9, 0.06, -0.15);
       drone.add(rightTip);
 
-      // 尾翼 (水平安定面)
       const tailHGeom = new THREE.BoxGeometry(0.5, 0.015, 0.12);
       const tailH = new THREE.Mesh(tailHGeom, planeMat);
       tailH.position.set(0, 0.04, 0.5);
       drone.add(tailH);
 
-      // 垂直尾翼 (安定面)
       const tailVGeom = new THREE.BoxGeometry(0.015, 0.2, 0.15);
       const tailV = new THREE.Mesh(tailVGeom, trimMat);
       tailV.position.set(0, 0.14, 0.5);
       drone.add(tailV);
 
-      // 機頭罩與槳軸
       const spinnerGeom = new THREE.ConeGeometry(0.08, 0.15, 8);
       spinnerGeom.rotateX(-Math.PI / 2);
       const spinner = new THREE.Mesh(spinnerGeom, trimMat);
       spinner.position.set(0, 0, -0.65);
       drone.add(spinner);
 
-      // 定翼機螺旋槳 (繞 Z 軸旋轉)
       const bladeGeom = new THREE.BoxGeometry(0.4, 0.03, 0.005);
       const prop = new THREE.Mesh(bladeGeom, motorMat);
       prop.position.set(0, 0, -0.73);
       drone.add(prop);
       
-      animatedMeshesRef.current.push(prop); // 機頭旋轉槳
+      animatedMeshesRef.current.push(prop);
     }
     else if (modelType === 'car') {
-      // 🚗 Rover / Car (無人車)
-      const carMat = new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.3 }); // 亮橘色
+      // 🚗 Rover / Car
+      const carMat = new THREE.MeshStandardMaterial({ color: '#f97316', roughness: 0.3 });
       const glassMat = new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.1, metalness: 0.9 });
-      const wheelMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.8 }); // 黑色橡膠
+      const wheelMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.8 });
 
-      // 車身底盤
       const bodyGeom = new THREE.BoxGeometry(0.5, 0.18, 0.85);
       const bodyMesh = new THREE.Mesh(bodyGeom, carMat);
       bodyMesh.position.y = 0.15;
       drone.add(bodyMesh);
 
-      // 玻璃駕駛室
       const cabinGeom = new THREE.BoxGeometry(0.4, 0.15, 0.45);
       const cabinMesh = new THREE.Mesh(cabinGeom, glassMat);
       cabinMesh.position.set(0, 0.31, -0.05);
       drone.add(cabinMesh);
 
-      // 防撞前護槓
       const bumperGeom = new THREE.BoxGeometry(0.5, 0.08, 0.08);
       const bumper = new THREE.Mesh(bumperGeom, wheelMat);
       bumper.position.set(0, 0.1, -0.45);
       drone.add(bumper);
 
-      // 四個轉動車輪 (圓筒打橫)
       const whGeom = new THREE.CylinderGeometry(0.15, 0.15, 0.08, 12);
       whGeom.rotateZ(Math.PI / 2);
 
@@ -680,41 +709,37 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         const wheel = new THREE.Mesh(whGeom, wheelMat);
         wheel.position.set(x, y, z);
         drone.add(wheel);
-        animatedMeshesRef.current.push(wheel); // 四輪
+        animatedMeshesRef.current.push(wheel);
       });
     }
     else if (modelType === 'turtle') {
-      // 🐢 Turtle (可愛海龜)
-      const shellMat = new THREE.MeshStandardMaterial({ color: '#166534', roughness: 0.6 }); // 深綠色龜殼
-      const skinMat = new THREE.MeshStandardMaterial({ color: '#4ade80', roughness: 0.5 });  // 亮綠色皮膚
+      // 🐢 Turtle
+      const shellMat = new THREE.MeshStandardMaterial({ color: '#166534', roughness: 0.6 });
+      const skinMat = new THREE.MeshStandardMaterial({ color: '#4ade80', roughness: 0.5 });
 
-      // 扁平龜殼
       const shellGeom = new THREE.SphereGeometry(0.35, 16, 16);
       const shell = new THREE.Mesh(shellGeom, shellMat);
       shell.scale.set(1.1, 0.65, 1.25);
       shell.position.y = 0.15;
       drone.add(shell);
 
-      // 海龜頭部
       const headGeom = new THREE.SphereGeometry(0.12, 12, 12);
       const head = new THREE.Mesh(headGeom, skinMat);
       head.position.set(0, 0.18, -0.5);
       drone.add(head);
 
-      // 尾巴
       const tailGeom = new THREE.ConeGeometry(0.04, 0.15, 4);
       tailGeom.rotateX(Math.PI / 2.5);
       const tail = new THREE.Mesh(tailGeom, skinMat);
       tail.position.set(0, 0.08, 0.44);
       drone.add(tail);
 
-      // 四肢 (划水鰭)
       const flGeom = new THREE.BoxGeometry(0.18, 0.03, 0.35);
       const flipperLocs = [
-        [-0.32, 0.08, -0.22, -Math.PI / 6], // FL
-        [0.32, 0.08, -0.22, Math.PI / 6],  // FR
-        [-0.30, 0.08, 0.22, -Math.PI / 4],  // RL
-        [0.30, 0.08, 0.22, Math.PI / 4]     // RR
+        [-0.32, 0.08, -0.22, -Math.PI / 6],
+        [0.32, 0.08, -0.22, Math.PI / 6],
+        [-0.30, 0.08, 0.22, -Math.PI / 4],
+        [0.30, 0.08, 0.22, Math.PI / 4]
       ];
 
       flipperLocs.forEach(([x, y, z, rotY]) => {
@@ -722,54 +747,48 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
         fl.position.set(x, y, z);
         fl.rotation.y = rotY;
         drone.add(fl);
-        animatedMeshesRef.current.push(fl); // 綁定於划水擺動
+        animatedMeshesRef.current.push(fl);
       });
     }
     else if (modelType === 'eagle') {
-      // 🦅 Eagle (雄鷹)
-      const featherMat = new THREE.MeshStandardMaterial({ color: '#451a03', roughness: 0.8 }); // 深褐羽毛
-      const whiteMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.7 });   // 白頭
-      const beakMat = new THREE.MeshStandardMaterial({ color: '#eab308', metalness: 0.3 });    // 黃喙
+      // 🦅 Eagle
+      const featherMat = new THREE.MeshStandardMaterial({ color: '#451a03', roughness: 0.8 });
+      const whiteMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.7 });
+      const beakMat = new THREE.MeshStandardMaterial({ color: '#eab308', metalness: 0.3 });
 
-      // 鷹身
       const bodyGeom = new THREE.SphereGeometry(0.18, 12, 12);
       bodyGeom.scale(1.0, 0.8, 1.4);
       const body = new THREE.Mesh(bodyGeom, featherMat);
       body.position.y = 0.15;
       drone.add(body);
 
-      // 鷹頭 (白)
       const headGeom = new THREE.SphereGeometry(0.11, 10, 10);
       const head = new THREE.Mesh(headGeom, whiteMat);
       head.position.set(0, 0.25, -0.32);
       drone.add(head);
 
-      // 鷹喙 (黃)
       const beakGeom = new THREE.ConeGeometry(0.05, 0.12, 4);
       beakGeom.rotateX(-Math.PI / 2);
       const beak = new THREE.Mesh(beakGeom, beakMat);
       beak.position.set(0, 0.22, -0.46);
       drone.add(beak);
 
-      // 鷹尾羽
       const tailGeom = new THREE.BoxGeometry(0.24, 0.015, 0.35);
       const tail = new THREE.Mesh(tailGeom, featherMat);
       tail.position.set(0, 0.15, 0.55);
       tail.rotation.x = Math.PI / 12;
       drone.add(tail);
 
-      // 左主翼組件 (樞紐在身體邊緣，方便拍打動畫)
       const leftWingGroup = new THREE.Group();
       leftWingGroup.position.set(-0.16, 0.18, 0);
       drone.add(leftWingGroup);
 
       const leftWingGeom = new THREE.BoxGeometry(0.8, 0.02, 0.28);
-      leftWingGeom.translate(-0.4, 0, 0); // 將幾何往左平移，旋轉時圍繞原點拍打
+      leftWingGeom.translate(-0.4, 0, 0);
       const leftWingMesh = new THREE.Mesh(leftWingGeom, featherMat);
       leftWingGroup.add(leftWingMesh);
-      animatedMeshesRef.current.push(leftWingGroup); // 0 = 左翼
+      animatedMeshesRef.current.push(leftWingGroup);
 
-      // 右主翼組件
       const rightWingGroup = new THREE.Group();
       rightWingGroup.position.set(0.16, 0.18, 0);
       drone.add(rightWingGroup);
@@ -778,34 +797,30 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       rightWingGeom.translate(0.4, 0, 0);
       const rightWingMesh = new THREE.Mesh(rightWingGeom, featherMat);
       rightWingGroup.add(rightWingMesh);
-      animatedMeshesRef.current.push(rightWingGroup); // 1 = 右翼
+      animatedMeshesRef.current.push(rightWingGroup);
     }
     else if (modelType === 'kabibala') {
-      // 🦫 Capybara / Kabibala (呆萌水豚)
-      const capyMat = new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.95 }); // 水豚棕
-      const snoutMat = new THREE.MeshStandardMaterial({ color: '#451a03', roughness: 0.95 }); // 機鼻深棕
-      const eyeMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.9 });    // 黑眼睛
+      // 🦫 Capybara / Kabibala
+      const capyMat = new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.95 });
+      const snoutMat = new THREE.MeshStandardMaterial({ color: '#451a03', roughness: 0.95 });
+      const eyeMat = new THREE.MeshStandardMaterial({ color: '#0f172a', roughness: 0.9 });
 
-      // 桶形身體 (水平圓柱)
       const capyBodyGeom = new THREE.CylinderGeometry(0.22, 0.22, 0.75, 10);
       capyBodyGeom.rotateX(Math.PI / 2);
       const capyBody = new THREE.Mesh(capyBodyGeom, capyMat);
       capyBody.position.y = 0.28;
       drone.add(capyBody);
 
-      // 方方的頭部
       const capyHeadGeom = new THREE.BoxGeometry(0.24, 0.26, 0.35);
       const capyHead = new THREE.Mesh(capyHeadGeom, capyMat);
       capyHead.position.set(0, 0.44, -0.38);
       drone.add(capyHead);
 
-      // 特色扁平寬口鼻 (snout)
       const snoutGeom = new THREE.BoxGeometry(0.24, 0.18, 0.15);
       const snout = new THREE.Mesh(snoutGeom, snoutMat);
       snout.position.set(0, 0.38, -0.52);
       drone.add(snout);
 
-      // 瞇瞇眼 (左右兩顆小黑球)
       const eyeGeom = new THREE.SphereGeometry(0.025, 6, 6);
       const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
       leftEye.position.set(-0.125, 0.46, -0.45);
@@ -815,7 +830,6 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       rightEye.position.set(0.125, 0.46, -0.45);
       drone.add(rightEye);
 
-      // 圓滾滾小耳朵
       const earGeom = new THREE.BoxGeometry(0.06, 0.08, 0.04);
       const leftEar = new THREE.Mesh(earGeom, snoutMat);
       leftEar.position.set(-0.1, 0.58, -0.28);
@@ -827,20 +841,19 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       rightEar.rotation.z = Math.PI / 12;
       drone.add(rightEar);
 
-      // 四條站立的小短腿 (跑步擺動)
       const legGeom = new THREE.CylinderGeometry(0.045, 0.045, 0.22, 6);
       const legsLocations = [
-        [-0.14, 0.11, -0.24], // FL
-        [0.14, 0.11, -0.24],  // FR
-        [-0.14, 0.11, 0.24],  // RL
-        [0.14, 0.11, 0.24]    // RR
+        [-0.14, 0.11, -0.24],
+        [0.14, 0.11, -0.24],
+        [-0.14, 0.11, 0.24],
+        [0.14, 0.11, 0.24]
       ];
 
       legsLocations.forEach(([x, y, z]) => {
         const leg = new THREE.Mesh(legGeom, capyMat);
         leg.position.set(x, y, z);
         drone.add(leg);
-        animatedMeshesRef.current.push(leg); // 跑步腿部擺動
+        animatedMeshesRef.current.push(leg);
       });
     }
   }, [modelType]);
