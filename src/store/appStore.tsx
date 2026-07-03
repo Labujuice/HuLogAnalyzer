@@ -56,6 +56,7 @@ type Action =
   | { type: 'ADD_SERIES_TO_PANEL'; panelId: string; series: ChartSeries }
   | { type: 'REMOVE_SERIES_FROM_PANEL'; panelId: string; seriesIdx: number }
   | { type: 'SPLIT_PANEL'; panelId: string; direction: 'row' | 'column' }
+  | { type: 'REMOVE_PANEL'; panelId: string }
   | { type: 'SET_PLAYBACK'; playback: Partial<PlaybackState> }
   | { type: 'RESET' };
 
@@ -73,6 +74,47 @@ function findAndUpdatePanel(
       return updater(p as LeafPanel);
     } else if ('direction' in p) {
       return findAndUpdatePanel(p as PanelLayout, panelId, updater);
+    }
+    return p;
+  });
+  return { ...layout, panels: newPanels };
+}
+
+/**
+ * 從 layout 樹中移除指定 panel。
+ * 若父層移除後只剩一個子節點，則將父層直接替換為該子節點（collapse）。
+ * 若整個 layout 只有一個 panel，則清空其 series 而不刪除（保持至少一個 panel）。
+ */
+function removePanel(
+  layout: PanelLayout,
+  panelId: string
+): PanelLayout | LeafPanel {
+  // 先看本層是否有目標
+  const hasTarget = layout.panels.some(
+    (p) => 'id' in p && (p as LeafPanel).id === panelId
+  );
+
+  if (hasTarget) {
+    const remaining = layout.panels.filter(
+      (p) => !('id' in p) || (p as LeafPanel).id !== panelId
+    );
+    if (remaining.length === 0) {
+      // 不應發生，保留原樣
+      return layout;
+    }
+    if (remaining.length === 1) {
+      // 只剩一個子節點：collapse，直接返回子節點
+      return remaining[0] as PanelLayout | LeafPanel;
+    }
+    // 均分剩餘 sizes
+    const newSizes = remaining.map(() => 100 / remaining.length);
+    return { ...layout, panels: remaining, sizes: newSizes };
+  }
+
+  // 遞迴處理子層
+  const newPanels = layout.panels.map((p) => {
+    if ('direction' in p) {
+      return removePanel(p as PanelLayout, panelId);
     }
     return p;
   });
@@ -161,6 +203,31 @@ function appReducer(state: AppState, action: Action): AppState {
         return { ...layout, panels: newPanels };
       };
       return { ...state, layout: splitInLayout(state.layout) };
+    }
+
+    case 'REMOVE_PANEL': {
+      const { panelId: rmId } = action as { type: 'REMOVE_PANEL'; panelId: string };
+      // 若整個 layout 只有一個 panel，清空 series 而不刪除
+      if (
+        state.layout.panels.length === 1 &&
+        'id' in state.layout.panels[0] &&
+        (state.layout.panels[0] as LeafPanel).id === rmId
+      ) {
+        return {
+          ...state,
+          layout: {
+            ...state.layout,
+            panels: [{ ...(state.layout.panels[0] as LeafPanel), series: [] }],
+          },
+        };
+      }
+      const result = removePanel(state.layout, rmId);
+      // 如果 collapse 後回傳的是一個 LeafPanel，包回 PanelLayout
+      const newLayout: PanelLayout =
+        'direction' in result
+          ? (result as PanelLayout)
+          : { direction: 'column', panels: [result as LeafPanel], sizes: [100] };
+      return { ...state, layout: newLayout };
     }
 
     case 'SET_PLAYBACK':

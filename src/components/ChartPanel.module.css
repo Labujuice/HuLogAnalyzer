@@ -88,6 +88,24 @@
   display: flex;
   gap: 2px;
   flex-shrink: 0;
+  align-items: center;
+}
+
+.actionDivider {
+  width: 1px;
+  height: 16px;
+  background: var(--clr-border);
+  margin: 0 2px;
+}
+
+.removeBtn {
+  color: var(--clr-text-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.removeBtn:hover {
+  color: var(--clr-danger) !important;
+  background: rgba(248, 113, 113, 0.1) !important;
+  border-color: rgba(248, 113, 113, 0.3) !important;
 }
 
 /* ─── Chart Area ─── */

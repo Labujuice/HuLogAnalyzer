@@ -20,6 +20,10 @@ export function DashboardLayout() {
     dispatch({ type: 'SPLIT_PANEL', panelId, direction });
   }, [dispatch]);
 
+  const removePanel = useCallback((panelId: string) => {
+    dispatch({ type: 'REMOVE_PANEL', panelId });
+  }, [dispatch]);
+
   return (
     <div className={styles.root}>
       <LayoutNode
@@ -28,6 +32,7 @@ export function DashboardLayout() {
         onAddSeries={addSeries}
         onRemoveSeries={removeSeries}
         onSplit={splitPanel}
+        onRemovePanel={removePanel}
       />
     </div>
   );
@@ -41,9 +46,13 @@ interface LayoutNodeProps {
   onAddSeries: (panelId: string, series: ChartSeries) => void;
   onRemoveSeries: (panelId: string, idx: number) => void;
   onSplit: (panelId: string, direction: 'row' | 'column') => void;
+  onRemovePanel: (panelId: string) => void;
 }
 
-function LayoutNode({ node, currentTimeUs, onAddSeries, onRemoveSeries, onSplit }: LayoutNodeProps) {
+function LayoutNode({
+  node, currentTimeUs,
+  onAddSeries, onRemoveSeries, onSplit, onRemovePanel,
+}: LayoutNodeProps) {
   // 葉節點（Panel）
   if ('id' in node) {
     return (
@@ -54,6 +63,7 @@ function LayoutNode({ node, currentTimeUs, onAddSeries, onRemoveSeries, onSplit 
         onRemoveSeries={i => onRemoveSeries(node.id, i)}
         onSplitHoriz={() => onSplit(node.id, 'row')}
         onSplitVert={() => onSplit(node.id, 'column')}
+        onRemovePanel={() => onRemovePanel(node.id)}
       />
     );
   }
@@ -77,6 +87,7 @@ function LayoutNode({ node, currentTimeUs, onAddSeries, onRemoveSeries, onSplit 
               onAddSeries={onAddSeries}
               onRemoveSeries={onRemoveSeries}
               onSplit={onSplit}
+              onRemovePanel={onRemovePanel}
             />
           </div>
           {idx < layout.panels.length - 1 && (
@@ -123,9 +134,8 @@ function ResizeHandle({ direction, idx, layout }: ResizeHandleProps) {
       layout.sizes[idx] = newA;
       layout.sizes[idx + 1] = newB;
 
-      // 強制更新（直接修改 layout 物件後 React 不會自動感知，
-      // 這裡用 CSS 方式直接更新 DOM flex 值）
-      const slots = parent.querySelectorAll<HTMLElement>(':scope > .panel-slot');
+      // 直接更新 DOM flex 值，不等 React re-render
+      const slots = parent.querySelectorAll<HTMLElement>(`:scope > .${styles.panelSlot}`);
       if (slots[idx]) slots[idx].style.flex = `${newA}`;
       if (slots[idx + 1]) slots[idx + 1].style.flex = `${newB}`;
     };

@@ -35,10 +35,17 @@ export function Sidebar() {
 
 // ─── Topic Tree ───────────────────────────────────────────────────────────────
 
+let colorIdx = 0;
+function nextColor() {
+  return CHART_COLORS[colorIdx++ % CHART_COLORS.length];
+}
+
 function TopicTree() {
-  const { state, dispatch } = useApp();
+  const { state } = useApp();
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // 多選：key = "topicName:multiId:fieldName"
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const topics = state.summary?.topics ?? [];
 
@@ -59,20 +66,70 @@ function TopicTree() {
     });
   };
 
-  // 拖曳處理：把欄位資訊放入 dataTransfer
-  const onDragStart = useCallback((e: React.DragEvent, topicName: string, multiId: number, fieldName: string) => {
-    const series: ChartSeries = {
-      topicName,
-      multiId,
-      fieldName,
-      label: `${topicName}.${fieldName}`,
-      color: CHART_COLORS[Math.floor(Math.random() * CHART_COLORS.length)],
-    };
+  const toggleField = (fieldKey: string) => {
+    setSelected(prev => {
+      const s = new Set(prev);
+      s.has(fieldKey) ? s.delete(fieldKey) : s.add(fieldKey);
+      return s;
+    });
+  };
+
+  const toggleAllFields = (topicKey: string, fields: string[], topicName: string, multiId: number) => {
+    const fieldKeys = fields.map(f => `${topicName}:${multiId}:${f}`);
+    const allSelected = fieldKeys.every(k => selected.has(k));
+    setSelected(prev => {
+      const s = new Set(prev);
+      if (allSelected) {
+        fieldKeys.forEach(k => s.delete(k));
+      } else {
+        fieldKeys.forEach(k => s.add(k));
+      }
+      return s;
+    });
+  };
+
+  // 把 selected 組成 ChartSeries[] JSON 放進 dataTransfer
+  const buildSeriesFromSelected = useCallback((): ChartSeries[] => {
+    return Array.from(selected).map(fieldKey => {
+      const parts = fieldKey.split(':');
+      const fieldName = parts[parts.length - 1];
+      const multiId = parseInt(parts[parts.length - 2], 10);
+      const topicName = parts.slice(0, parts.length - 2).join(':');
+      return {
+        topicName,
+        multiId,
+        fieldName,
+        label: `${topicName}.${fieldName}`,
+        color: nextColor(),
+      };
+    });
+  }, [selected]);
+
+  // 拖曳單一欄位（不管有沒有多選，都只拖這個欄位；若此欄位在選取集合內則拖全部）
+  const onDragStart = useCallback((
+    e: React.DragEvent,
+    topicName: string, multiId: number, fieldName: string
+  ) => {
+    const thisKey = `${topicName}:${multiId}:${fieldName}`;
+    let series: ChartSeries[];
+    if (selected.has(thisKey) && selected.size > 1) {
+      // 拖曳已選取的欄位 → 整批傳出
+      series = buildSeriesFromSelected();
+    } else {
+      // 拖曳未選取的單一欄位
+      series = [{
+        topicName, multiId, fieldName,
+        label: `${topicName}.${fieldName}`,
+        color: nextColor(),
+      }];
+    }
     e.dataTransfer.setData('application/ulog-series', JSON.stringify(series));
     e.dataTransfer.effectAllowed = 'copy';
-  }, []);
+  }, [selected, buildSeriesFromSelected]);
 
   if (!state.summary) return <div className={styles.empty}>尚未載入 ULog 檔案</div>;
+
+  const selectedCount = selected.size;
 
   return (
     <div className={styles.topicTree}>
@@ -93,6 +150,29 @@ function TopicTree() {
         )}
       </div>
 
+      {/* 多選提示列 */}
+      {selectedCount > 0 && (
+        <div className={styles.selectionBar}>
+          <span className={styles.selectionCount}>已選 {selectedCount} 個欄位</span>
+          <button
+            className={styles.selectionClear}
+            onClick={() => setSelected(new Set())}
+          >清除</button>
+          <div
+            className={styles.selectionDrag}
+            draggable
+            onDragStart={e => {
+              const series = buildSeriesFromSelected();
+              e.dataTransfer.setData('application/ulog-series', JSON.stringify(series));
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
+            title="拖曳所有已選欄位至圖表"
+          >
+            ⠿ 拖曳至圖表
+          </div>
+        </div>
+      )}
+
       <div className={styles.treeList}>
         {filtered.length === 0 ? (
           <div className={styles.empty}>無符合結果</div>
@@ -100,6 +180,9 @@ function TopicTree() {
           filtered.map(topic => {
             const key = `${topic.name}:${topic.multiId}`;
             const isOpen = expanded.has(key);
+            const fieldKeys = topic.fields.map(f => `${topic.name}:${topic.multiId}:${f}`);
+            const allSelected = fieldKeys.length > 0 && fieldKeys.every(k => selected.has(k));
+            const someSelected = fieldKeys.some(k => selected.has(k));
             return (
               <div key={key} className={styles.topicGroup}>
                 <div
@@ -109,6 +192,19 @@ function TopicTree() {
                   tabIndex={0}
                   onKeyDown={e => e.key === 'Enter' && toggle(key)}
                 >
+                  {/* Topic 全選 checkbox */}
+                  <input
+                    type="checkbox"
+                    className={styles.topicCheckbox}
+                    checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                    onChange={e => {
+                      e.stopPropagation();
+                      toggleAllFields(key, topic.fields, topic.name, topic.multiId);
+                    }}
+                    onClick={e => e.stopPropagation()}
+                    title="全選此 Topic 的欄位"
+                  />
                   <span className={`${styles.arrow} ${isOpen ? styles.arrowOpen : ''}`}>▶</span>
                   <span className={styles.topicName}>{topic.name}</span>
                   {topic.multiId > 0 && (
@@ -119,19 +215,32 @@ function TopicTree() {
 
                 {isOpen && (
                   <div className={styles.fieldList}>
-                    {topic.fields.map(field => (
-                      <div
-                        key={field}
-                        className={styles.fieldRow}
-                        draggable
-                        onDragStart={e => onDragStart(e, topic.name, topic.multiId, field)}
-                        title={`拖曳至圖表：${topic.name}.${field}`}
-                      >
-                        <span className={styles.dragHandle}>⠿</span>
-                        <span className={styles.fieldName}>{field}</span>
-                        <span className={styles.fieldType}>{topic.fieldTypes[field]}</span>
-                      </div>
-                    ))}
+                    {topic.fields.map(field => {
+                      const fieldKey = `${topic.name}:${topic.multiId}:${field}`;
+                      const isChecked = selected.has(fieldKey);
+                      return (
+                        <div
+                          key={field}
+                          className={`${styles.fieldRow} ${isChecked ? styles.fieldRowSelected : ''}`}
+                          draggable
+                          onDragStart={e => onDragStart(e, topic.name, topic.multiId, field)}
+                          title={isChecked && selected.size > 1
+                            ? `拖曳所有 ${selected.size} 個已選欄位`
+                            : `拖曳至圖表：${topic.name}.${field}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className={styles.fieldCheckbox}
+                            checked={isChecked}
+                            onChange={() => toggleField(fieldKey)}
+                            onClick={e => e.stopPropagation()}
+                          />
+                          <span className={styles.dragHandle}>⠿</span>
+                          <span className={styles.fieldName}>{field}</span>
+                          <span className={styles.fieldType}>{topic.fieldTypes[field]}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
