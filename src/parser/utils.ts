@@ -74,6 +74,71 @@ export function lttbDownsample(
 }
 
 /**
+ * LTTB (Largest-Triangle-Three-Buckets) 索引提取
+ * 針對多欄位對齊的情境，回傳應保留的資料索引。
+ */
+export function getLttbIndices(
+  xs: Float64Array,
+  ys: Float32Array | Float64Array,
+  threshold: number
+): Int32Array {
+  const len = xs.length;
+  if (threshold >= len || threshold < 3) {
+    const indices = new Int32Array(len);
+    for (let i = 0; i < len; i++) indices[i] = i;
+    return indices;
+  }
+
+  const indices = new Int32Array(threshold);
+  const bucketSize = (len - 2) / (threshold - 2);
+
+  let a = 0;
+  indices[0] = 0;
+
+  for (let i = 0; i < threshold - 2; i++) {
+    const avgRangeStart = Math.floor((i + 1) * bucketSize) + 1;
+    const avgRangeEnd = Math.min(Math.floor((i + 2) * bucketSize) + 1, len);
+    const avgRangeLen = avgRangeEnd - avgRangeStart;
+
+    let avgX = 0;
+    let avgY = 0;
+    for (let j = avgRangeStart; j < avgRangeEnd; j++) {
+      avgX += xs[j];
+      avgY += Number(ys[j]);
+    }
+    avgX /= avgRangeLen;
+    avgY /= avgRangeLen;
+
+    const rangeStart = Math.floor(i * bucketSize) + 1;
+    const rangeEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, len);
+
+    const aX = xs[a];
+    const aY = Number(ys[a]);
+
+    let maxArea = -1;
+    let maxIdx = rangeStart;
+
+    for (let j = rangeStart; j < rangeEnd; j++) {
+      const area = Math.abs(
+        (aX - avgX) * (Number(ys[j]) - aY) -
+        (aX - xs[j]) * (avgY - aY)
+      ) * 0.5;
+      if (area > maxArea) {
+        maxArea = area;
+        maxIdx = j;
+      }
+    }
+
+    indices[i + 1] = maxIdx;
+    a = maxIdx;
+  }
+
+  indices[threshold - 1] = len - 1;
+  return indices;
+}
+
+
+/**
  * 在指定時間範圍內做 Slice（二分搜索，O(log n)）
  */
 export function sliceByTimeRange(

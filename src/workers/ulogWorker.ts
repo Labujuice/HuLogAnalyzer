@@ -6,7 +6,7 @@
  */
 
 import { ULogParser } from '../parser/ULogParser';
-import { lttbDownsample } from '../parser/utils';
+import { lttbDownsample, getLttbIndices } from '../parser/utils';
 import type { WorkerRequest, WorkerResponse } from '../types/ulog';
 
 let parser: ULogParser | null = null;
@@ -58,7 +58,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         const errResp: WorkerResponse = {
           type: 'TOPIC_ERROR',
           topicName: req.topicName,
-          message: '尚未解析任何 ULog 檔案。',
+          message: '尚未解析 any ULog 檔案。',
         };
         self.postMessage(errResp);
         return;
@@ -76,24 +76,72 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           return;
         }
 
-        // 收集所有 Transferable 物件
-        const transferables: ArrayBuffer[] = [];
-        transferables.push(topicData.timestamps.buffer as ArrayBuffer);
-
+        let finalTimestamps = topicData.timestamps;
+        let finalCount = topicData.count;
         const fieldBuffers: Record<string, Float32Array | Float64Array | Int32Array> = {};
-        for (const [fieldName, arr] of Object.entries(topicData.fields)) {
-          let finalArr: Float32Array | Float64Array | Int32Array;
-          // 如果數據量超過 8000 點，在 Worker 端做降採樣
-          if (topicData.count > 8000 && arr instanceof Float32Array) {
-            const result = lttbDownsample(topicData.timestamps, arr, 4000);
-            finalArr = new Float32Array(result.ys);
-          } else if (arr instanceof Int8Array) {
-            finalArr = new Int32Array(arr); // 升型以統一介面
-          } else {
-            finalArr = arr as Float32Array | Float64Array | Int32Array;
+        const transferables: ArrayBuffer[] = [];
+
+        if (topicData.count > 8000) {
+          // 超過 8000 點，統一用 LTTB 對第一個浮點數欄位做降採樣，取得統一的保留索引
+          let refField: Float32Array | Float64Array | null = null;
+          for (const val of Object.values(topicData.fields)) {
+            if (val instanceof Float32Array || val instanceof Float64Array) {
+              refField = val;
+              break;
+            }
           }
-          fieldBuffers[fieldName] = finalArr;
-          transferables.push(finalArr.buffer as ArrayBuffer);
+          if (!refField) {
+            refField = Object.values(topicData.fields)[0] as Float32Array | Float64Array | null;
+          }
+
+          if (refField) {
+            const indices = getLttbIndices(topicData.timestamps, refField, 4000);
+            finalCount = indices.length;
+
+            // 重新抽取 timestamps
+            const newTimestamps = new Float64Array(finalCount);
+            for (let i = 0; i < finalCount; i++) {
+              newTimestamps[i] = topicData.timestamps[indices[i]];
+            }
+            finalTimestamps = newTimestamps;
+            transferables.push(finalTimestamps.buffer as ArrayBuffer);
+
+            // 重新抽取各個欄位
+            for (const [fieldName, arr] of Object.entries(topicData.fields)) {
+              let finalArr: Float32Array | Float64Array | Int32Array;
+              if (arr instanceof Float32Array) {
+                const temp = new Float32Array(finalCount);
+                for (let i = 0; i < finalCount; i++) temp[i] = arr[indices[i]];
+                finalArr = temp;
+              } else if (arr instanceof Float64Array) {
+                const temp = new Float64Array(finalCount);
+                for (let i = 0; i < finalCount; i++) temp[i] = arr[indices[i]];
+                finalArr = temp;
+              } else {
+                const temp = new Int32Array(finalCount);
+                for (let i = 0; i < finalCount; i++) temp[i] = arr[indices[i]];
+                finalArr = temp;
+              }
+              fieldBuffers[fieldName] = finalArr;
+              transferables.push(finalArr.buffer as ArrayBuffer);
+            }
+          } else {
+            // 兜底：無任何欄位
+            transferables.push(finalTimestamps.buffer as ArrayBuffer);
+          }
+        } else {
+          // 不需要降採樣，正常升級與傳輸
+          transferables.push(finalTimestamps.buffer as ArrayBuffer);
+          for (const [fieldName, arr] of Object.entries(topicData.fields)) {
+            let finalArr: Float32Array | Float64Array | Int32Array;
+            if (arr instanceof Int8Array) {
+              finalArr = new Int32Array(arr);
+            } else {
+              finalArr = arr as Float32Array | Float64Array | Int32Array;
+            }
+            fieldBuffers[fieldName] = finalArr;
+            transferables.push(finalArr.buffer as ArrayBuffer);
+          }
         }
 
         const dataResp: WorkerResponse = {
@@ -101,14 +149,15 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           topicName: req.topicName,
           multiId: req.multiId,
           data: {
-            timestamps: topicData.timestamps,
+            timestamps: finalTimestamps,
             fields: fieldBuffers,
-            count: topicData.count,
+            count: finalCount,
           },
         };
 
-        // Zero-Copy 傳輸：轉移 ArrayBuffer 所有權
+        // Zero-Copy 傳輸
         (self as unknown as Worker).postMessage(dataResp, transferables);
+
 
       } catch (err) {
         const errResp: WorkerResponse = {
