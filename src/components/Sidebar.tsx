@@ -7,12 +7,17 @@ import styles from './Sidebar.module.css';
 type SidebarTab = 'topics' | 'info' | 'messages';
 
 export function Sidebar() {
+  const { state } = useApp();
   const [activeTab, setActiveTab] = useState<SidebarTab>('topics');
 
   return (
     <aside className={styles.root}>
       <div className={styles.tabs}>
-        {([ ['topics','Topics'], ['info','資訊'], ['messages','日誌'] ] as [SidebarTab, string][]).map(([id, label]) => (
+        {([
+          ['topics', state.language === 'en' ? 'Topics' : '主題數據'],
+          ['info', state.language === 'en' ? 'Metadata' : '日誌資訊'],
+          ['messages', state.language === 'en' ? 'Messages' : '系統日誌']
+        ] as [SidebarTab, string][]).map(([id, label]) => (
           <button
             key={id}
             className={`${styles.tab} ${activeTab === id ? styles.tabActive : ''}`}
@@ -164,7 +169,7 @@ function TopicTree() {
     e.dataTransfer.effectAllowed = 'copy';
   }, [selected, buildSeriesFromSelected]);
 
-  if (!state.summary) return <div className={styles.empty}>尚未載入 ULog 檔案</div>;
+  if (!state.summary) return <div className={styles.empty}>{state.language === 'en' ? 'No ULog file loaded' : '尚未載入 ULog 檔案'}</div>;
 
   const selectedCount = selected.size;
 
@@ -179,22 +184,26 @@ function TopicTree() {
           className={styles.searchInput}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="搜尋 Topic / 欄位..."
+          placeholder={state.language === 'en' ? 'Search Topic / Field...' : '搜尋 Topic / 欄位...'}
           id="sidebar-search"
         />
         {search && (
-          <button className={styles.clearBtn} onClick={() => setSearch('')} title="清除搜尋">×</button>
+          <button className={styles.clearBtn} onClick={() => setSearch('')} title={state.language === 'en' ? 'Clear search' : '清除搜尋'}>×</button>
         )}
       </div>
 
       {/* 多選提示列 */}
       {selectedCount > 0 && (
         <div className={styles.selectionBar}>
-          <span className={styles.selectionCount}>已選 {selectedCount} 個欄位</span>
+          <span className={styles.selectionCount}>
+            {state.language === 'en' ? `Selected ${selectedCount} fields` : `已選 ${selectedCount} 個欄位`}
+          </span>
           <button
             className={styles.selectionClear}
             onClick={() => setSelected(new Set())}
-          >清除</button>
+          >
+            {state.language === 'en' ? 'Clear' : '清除'}
+          </button>
           <div
             className={styles.selectionDrag}
             draggable
@@ -203,16 +212,16 @@ function TopicTree() {
               e.dataTransfer.setData('application/ulog-series', JSON.stringify(series));
               e.dataTransfer.effectAllowed = 'copy';
             }}
-            title="拖曳所有已選欄位至圖表"
+            title={state.language === 'en' ? 'Drag all selected fields to chart' : '拖曳所有已選欄位至圖表'}
           >
-            ⠿ 拖曳至圖表
+            ⠿ {state.language === 'en' ? 'Drag to chart' : '拖曳至圖表'}
           </div>
         </div>
       )}
 
       <div className={styles.treeList}>
         {filtered.length === 0 ? (
-          <div className={styles.empty}>無符合結果</div>
+          <div className={styles.empty}>{state.language === 'en' ? 'No matches' : '無符合結果'}</div>
         ) : (
           filtered.map(topic => {
             const key = `${topic.name}:${topic.multiId}`;
@@ -301,15 +310,15 @@ function MetadataPanel() {
   const meta = state.summary?.metadata;
   const sum = state.summary;
 
-  if (!meta || !sum) return <div className={styles.empty}>無資料</div>;
+  if (!meta || !sum) return <div className={styles.empty}>{state.language === 'en' ? 'No data' : '無資料'}</div>;
 
   const rows: [string, string][] = [
-    ['系統名稱', meta.systemName],
-    ['硬體版本', meta.hardwareVersion],
-    ['韌體版本', meta.softwareVersion],
-    ['Topic 數量', `${sum.topics.length}`],
-    ['日誌訊息', `${sum.messages.length}`],
-    ['飛行時長', `${(sum.durationUs / 1e6).toFixed(1)}s`],
+    [state.language === 'en' ? 'System Name' : '系統名稱', meta.systemName],
+    [state.language === 'en' ? 'Hardware Ver' : '硬體版本', meta.hardwareVersion],
+    [state.language === 'en' ? 'Firmware Ver' : '韌體版本', meta.softwareVersion],
+    [state.language === 'en' ? 'Topic Count' : 'Topic 數量', `${sum.topics.length}`],
+    [state.language === 'en' ? 'Log Messages' : '日誌訊息', `${sum.messages.length}`],
+    [state.language === 'en' ? 'Flight Duration' : '飛行時長', `${(sum.durationUs / 1e6).toFixed(1)}s`],
   ];
 
   const params = Object.entries(meta.parameters).slice(0, 30);
@@ -317,7 +326,7 @@ function MetadataPanel() {
   return (
     <div className={styles.metaPanel}>
       <div className={styles.metaSection}>
-        <div className={styles.metaTitle}>基礎資訊</div>
+        <div className={styles.metaTitle}>{state.language === 'en' ? 'Basic Info' : '基礎資訊'}</div>
         {rows.map(([k, v]) => (
           <div key={k} className={styles.metaRow}>
             <span className={styles.metaKey}>{k}</span>
@@ -328,7 +337,9 @@ function MetadataPanel() {
 
       {params.length > 0 && (
         <div className={styles.metaSection}>
-          <div className={styles.metaTitle}>參數 ({Object.keys(meta.parameters).length})</div>
+          <div className={styles.metaTitle}>
+            {state.language === 'en' ? `Parameters (${Object.keys(meta.parameters).length})` : `參數 (${Object.keys(meta.parameters).length})`}
+          </div>
           <div className={styles.paramList}>
             {params.map(([k, v]) => (
               <div key={k} className={styles.paramRow}>
@@ -337,7 +348,11 @@ function MetadataPanel() {
               </div>
             ))}
             {Object.keys(meta.parameters).length > 30 && (
-              <div className={styles.moreHint}>...及 {Object.keys(meta.parameters).length - 30} 個更多參數</div>
+              <div className={styles.moreHint}>
+                {state.language === 'en' 
+                  ? `...and ${Object.keys(meta.parameters).length - 30} more parameters` 
+                  : `...及 ${Object.keys(meta.parameters).length - 30} 個更多參數`}
+              </div>
             )}
           </div>
         </div>
@@ -383,7 +398,7 @@ function LogMessages() {
           className={styles.searchInput}
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="搜尋日誌..."
+          placeholder={state.language === 'en' ? 'Search logs...' : '搜尋日誌...'}
           style={{ flex: 1 }}
         />
       </div>
@@ -401,7 +416,7 @@ function LogMessages() {
       </div>
       <div className={styles.logList}>
         {filtered.length === 0 ? (
-          <div className={styles.empty}>無日誌訊息</div>
+          <div className={styles.empty}>{state.language === 'en' ? 'No log messages' : '無日誌訊息'}</div>
         ) : (
           filtered.map((m, i) => (
             <div key={i} className={styles.logRow}>

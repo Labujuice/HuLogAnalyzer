@@ -166,6 +166,7 @@ export interface AppState {
   layout: PanelLayout;
   playback: PlaybackState;
   selectedTopics: Set<string>;
+  language: 'en' | 'zh';
 }
 
 // ============================================================

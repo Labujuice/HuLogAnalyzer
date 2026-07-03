@@ -23,3 +23,11 @@
     * 新增一鍵殺除伺服器占用 Port 的腳本：`npm stop`。
   * **🛠️ 專案路徑規範 (Relative Path Rule)**：
     * 建立 `.agents/AGENTS.md` 並在 `README.md` 的開發和 AI Agent 執行規範中加入「強制使用相對路徑制」的規則，確保離線點開即用。
+  * **🌐 全系統雙語切換 (i18n)**：
+    * 於首頁 (LandingPage)、頂部狀態列 (TopBar)、播放控制列 (PlayBar)、圖表視窗 (ChartPanel) 及側邊欄 (Sidebar) 新增多語言翻譯字典支持。
+    * 在狀態列及首頁右上角加上「語言切換」下拉選單，支援「English」與「繁體中文」，並預設為英文。
+  * **🛸 3D 視野限制解除與遮擋修正 (Attitude3dPanel)**：
+    * 解除 3D 相機縮放距離邊界（延伸為 1.0m 至 2000m），並解除相機俯仰俯視邊界（允許 0.01 到 $\pi - 0.01$），使用戶能從無人機下方等任意角度進行 3D 航線觀測。
+    * 修正 WebGL 渲染快照漏洞，在更新路徑線段頂點時強制呼叫 `computeBoundingSphere` 與 `computeBoundingBox`，解決特定視角或移動平移時線段被 Frustum Culling 判定在視野外而意外消失的 Bug。
+  * **🗺️ 2D 地貌地形圖支持 (MapPanel)**：
+    * 在地圖面板控制項中，除了原本的「道路圖」與「衛星圖」外，新增「地形圖 (Google Terrain `lyrs=p`)」選項，提供立體陰影山體地貌、等高線物理地圖的疊加觀測。

@@ -304,7 +304,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     // 7. 註冊滾輪縮放 (綁定在容器上以防止警告)
     const onWheelEvent = (e: WheelEvent) => {
       e.preventDefault();
-      cameraRadius.current = Math.max(1.5, Math.min(80, cameraRadius.current + e.deltaY * 0.01));
+      cameraRadius.current = Math.max(1.0, Math.min(2000, cameraRadius.current + e.deltaY * 0.015));
     };
     container.addEventListener('wheel', onWheelEvent, { passive: false });
 
@@ -364,12 +364,16 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
             if (activeGeomRef.current) {
               const activePoints = pos.points.slice(0, lo + 1);
               activeGeomRef.current.setFromPoints(activePoints);
+              activeGeomRef.current.computeBoundingSphere();
+              activeGeomRef.current.computeBoundingBox();
             }
 
             // 尚未飛過的路徑
             if (remainingGeomRef.current) {
               const remainingPoints = pos.points.slice(lo);
               remainingGeomRef.current.setFromPoints(remainingPoints);
+              remainingGeomRef.current.computeBoundingSphere();
+              remainingGeomRef.current.computeBoundingBox();
             }
           }
         }
@@ -409,7 +413,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 
     if (dragMode.current === 'rotate') {
       cameraTheta.current -= deltaX * 0.006;
-      cameraPhi.current = Math.max(0.05, Math.min(Math.PI / 2 - 0.02, cameraPhi.current - deltaY * 0.006));
+      cameraPhi.current = Math.max(0.01, Math.min(Math.PI - 0.01, cameraPhi.current - deltaY * 0.006));
     } else if (dragMode.current === 'pan' && cameraRef.current) {
       // 一旦進行手動平移，立即脫離跟隨鎖定狀態
       setIsFollowing(false);
@@ -433,7 +437,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     return (
       <div className={styles.root}>
         <div className={styles.noData}>
-          <span>⚠️ 找不到 3D 姿態數據 (`vehicle_attitude`)</span>
+          <span>{state.language === 'en' ? '⚠️ No attitude data found (vehicle_attitude)' : '⚠️ 找不到 3D 姿態數據 (vehicle_attitude)'}</span>
         </div>
       </div>
     );
@@ -448,7 +452,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       onMouseLeave={handleMouseUp}
       style={{ cursor: isDragging.current ? 'grabbing' : 'grab' }}
     >
-      <div className={styles.panelTitle}>3D 實時姿態與航線軌跡觀測器</div>
+      <div className={styles.panelTitle}>
+        {state.language === 'en' ? '3D Real-Time Attitude & Flight Path Viewer' : '3D 實時姿態與航線軌跡觀測器'}
+      </div>
 
       {/* 恢復跟隨按鈕 */}
       {!isFollowing && (
@@ -460,9 +466,9 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
               cameraTargetRef.current.copy(droneRef.current.position);
             }
           }}
-          title="恢復視角跟隨無人機"
+          title={state.language === 'en' ? 'Resume camera locking onto the drone' : '恢復視角跟隨無人機'}
         >
-          📍 恢復跟隨
+          {state.language === 'en' ? '📍 Resume Follow' : '📍 恢復跟隨'}
         </button>
       )}
 

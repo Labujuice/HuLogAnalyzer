@@ -1,22 +1,30 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useApp } from '../store/appStore';
+import { getTranslation } from '../store/translations';
 import styles from './LandingPage.module.css';
 
 const ACCEPT_EXTS = ['.ulog', '.ulg'];
 
 export function LandingPage() {
-  const { loadFile } = useApp();
+  const { state, dispatch, loadFile } = useApp();
+  const { language } = state;
   const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const t = useCallback((key: any) => getTranslation(language, key), [language]);
 
   const handleFile = useCallback((file: File) => {
     const name = file.name.toLowerCase();
     if (!ACCEPT_EXTS.some((ext) => name.endsWith(ext))) {
-      alert(`不支援的檔案格式。請選取 .ulog 或 .ulg 格式的 PX4 飛行日誌。`);
+      alert(
+        language === 'en'
+          ? 'Unsupported file format. Please select a PX4 flight log in .ulog or .ulg format.'
+          : '不支援的檔案格式。請選取 .ulog 或 .ulg 格式的 PX4 飛行日誌。'
+      );
       return;
     }
     loadFile(file);
-  }, [loadFile]);
+  }, [loadFile, language]);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -33,12 +41,46 @@ export function LandingPage() {
     if (file) handleFile(file);
   };
 
+  // 載入預設範例日誌
+  const loadSample = (filename: string) => {
+    // 範例日誌路徑使用相對路徑對齊
+    dispatch({ type: 'SET_STATUS', status: 'loading' });
+    dispatch({ type: 'SET_PROGRESS', progress: 0.1, stage: language === 'en' ? 'Fetching sample log...' : '獲取範例日誌...' });
+    
+    fetch(`./${filename}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(language === 'en' ? 'Failed to fetch sample file' : '無法獲取範例檔案');
+        return res.arrayBuffer();
+      })
+      .then((buf) => {
+        dispatch({ type: 'SET_PROGRESS', progress: 0.3, stage: language === 'en' ? 'Parsing sample log...' : '解析範例日誌...' });
+        const file = new File([buf], filename);
+        loadFile(file);
+      })
+      .catch((err) => {
+        dispatch({ type: 'SET_ERROR', error: err.message });
+      });
+  };
+
   return (
     <div className={styles.root}>
       {/* 背景裝飾 */}
       <div className={styles.bgGrid} aria-hidden />
       <div className={styles.bgGlow1} aria-hidden />
       <div className={styles.bgGlow2} aria-hidden />
+
+      {/* 語言切換浮動選單 */}
+      <div className={styles.langSelector}>
+        <span className={styles.langLabel}>Language / 語言:</span>
+        <select
+          value={language}
+          onChange={(e) => dispatch({ type: 'SET_LANGUAGE', language: e.target.value as any })}
+          className={styles.select}
+        >
+          <option value="en">English</option>
+          <option value="zh">繁體中文</option>
+        </select>
+      </div>
 
       <div className={styles.content}>
         {/* Logo & Title */}
@@ -48,7 +90,6 @@ export function LandingPage() {
               <circle cx="32" cy="32" r="30" stroke="url(#grad1)" strokeWidth="2"/>
               <path d="M32 8 L56 20 L56 44 L32 56 L8 44 L8 20 Z" stroke="url(#grad1)" strokeWidth="1.5" fill="none"/>
               <circle cx="32" cy="32" r="6" fill="url(#grad1)"/>
-              {/* 螺旋槳 */}
               <ellipse cx="14" cy="14" rx="8" ry="3" fill="rgba(96,165,250,0.4)" transform="rotate(-45 14 14)"/>
               <ellipse cx="50" cy="14" rx="8" ry="3" fill="rgba(96,165,250,0.4)" transform="rotate(45 50 14)"/>
               <ellipse cx="14" cy="50" rx="8" ry="3" fill="rgba(96,165,250,0.4)" transform="rotate(45 14 50)"/>
@@ -58,100 +99,85 @@ export function LandingPage() {
               <line x1="8" y1="20" x2="14" y2="23" stroke="#60a5fa" strokeWidth="1.5"/>
               <line x1="50" y1="41" x2="56" y2="44" stroke="#60a5fa" strokeWidth="1.5"/>
               <line x1="56" y1="20" x2="50" y2="23" stroke="#60a5fa" strokeWidth="1.5"/>
-              <line x1="14" y1="41" x2="8" y2="44" stroke="#60a5fa" strokeWidth="1.5"/>
+              <line x1="8" y1="44" x2="14" y2="41" stroke="#60a5fa" strokeWidth="1.5"/>
               <defs>
                 <linearGradient id="grad1" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stopColor="#60a5fa"/>
-                  <stop offset="100%" stopColor="#a78bfa"/>
+                  <stop offset="100%" stopColor="#c084fc"/>
                 </linearGradient>
               </defs>
             </svg>
-            <div className={styles.logoText}>
-              <span className={styles.logoMain}>ULog</span>
-              <span className={styles.logoSub}>Analyzer</span>
-            </div>
           </div>
-          <p className={styles.tagline}>
-            純前端 · 零後端 · 完全隱私<br/>
-            <span>PX4 飛行日誌 ‧ 線上即時分析儀表板</span>
-          </p>
+          <h1 className={styles.title}>{t('landingTitle')}</h1>
+          <p className={styles.subtitle}>{t('landingSub')}</p>
         </div>
 
-        {/* 拖放區域 */}
+        {/* 拖曳上傳區塊 */}
         <div
-          className={`${styles.dropZone} ${isDragOver ? styles.dragOver : ''}`}
-          onDrop={onDrop}
+          className={`${styles.dropzone} ${isDragOver ? styles.dropzoneActive : ''}`}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
+          onDrop={onDrop}
           onClick={() => inputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
-          aria-label="拖放或點擊選取 ULog 檔案"
         >
+          <input
+            type="file"
+            ref={inputRef}
+            onChange={onInputChange}
+            accept=".ulog,.ulg"
+            style={{ display: 'none' }}
+          />
           <div className={styles.dropIcon}>
-            <svg viewBox="0 0 48 48" fill="none">
-              <path d="M12 36L8 32M8 32L12 28M8 32H24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M36 12L40 16M40 16L36 20M40 16H24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M24 8V40" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 4"/>
-              <rect x="16" y="20" width="16" height="8" rx="2" fill="currentColor" opacity="0.2"/>
-              <path d="M20 24H28" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M24 20V28" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
             </svg>
           </div>
-          <p className={styles.dropText}>拖放 ULog 檔案到這裡</p>
-          <p className={styles.dropSubText}>或點擊選取 .ulog / .ulg 檔案</p>
-          <div className={styles.dropHint}>
-            <span className="badge badge--blue">無需上傳</span>
-            <span className="badge badge--green">完全本地解析</span>
-            <span className="badge badge--gray">支援 &gt;300MB</span>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".ulog,.ulg"
-            onChange={onInputChange}
-            style={{ display: 'none' }}
-            id="ulog-file-input"
-          />
+          <span className={styles.dropText}>{t('dropPrompt')}</span>
+          <span className={styles.dropSubText}>.ulog / .ulg (max 200MB)</span>
         </div>
 
-        {/* 功能特色 */}
+        {/* 快速測試範例 */}
+        <div className={styles.sampleSection}>
+          <span className={styles.sampleTitle}>{t('sampleLogs')}</span>
+          <div className={styles.sampleButtons}>
+            <button className="btn btn--secondary btn--sm" onClick={() => loadSample('sample.ulg')}>
+              🛸 Quadcopter Log (sample.ulg)
+            </button>
+          </div>
+        </div>
+
+        {/* 特色列表 */}
         <div className={styles.features}>
-          {FEATURES.map((f) => (
-            <div key={f.title} className={styles.featureCard}>
-              <div className={styles.featureIcon}>{f.icon}</div>
-              <div>
-                <div className={styles.featureTitle}>{f.title}</div>
-                <div className={styles.featureDesc}>{f.desc}</div>
-              </div>
+          <div className={styles.featureCard}>
+            <div className={styles.featureIcon}>🌐</div>
+            <div>
+              <h3 className={styles.featureTitle}>{t('featureStaticTitle')}</h3>
+              <p className={styles.featureDesc}>{t('featureStaticDesc')}</p>
             </div>
-          ))}
+          </div>
+          <div className={styles.featureCard}>
+            <div className={styles.featureIcon}>🛡️</div>
+            <div>
+              <h3 className={styles.featureTitle}>{t('featurePrivateTitle')}</h3>
+              <p className={styles.featureDesc}>{t('featurePrivateDesc')}</p>
+            </div>
+          </div>
+          <div className={styles.featureCard}>
+            <div className={styles.featureIcon}>⚡</div>
+            <div>
+              <h3 className={styles.featureTitle}>{t('featurePerfTitle')}</h3>
+              <p className={styles.featureDesc}>{t('featurePerfDesc')}</p>
+            </div>
+          </div>
+          <div className={styles.featureCard}>
+            <div className={styles.featureIcon}>✨</div>
+            <div>
+              <h3 className={styles.featureTitle}>{t('featureWebGLTitle')}</h3>
+              <p className={styles.featureDesc}>{t('featureWebGLDesc')}</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
-const FEATURES = [
-  {
-    icon: '⚡',
-    title: '高效解析',
-    desc: 'Web Worker 後台解析，UI 始終 60 FPS 流暢',
-  },
-  {
-    icon: '📊',
-    title: '動態儀表板',
-    desc: '多面板自由分割，拖曳欄位即時繪圖',
-  },
-  {
-    icon: '🛸',
-    title: '3D 姿態回放',
-    desc: 'Three.js 渲染無人機四元數即時旋轉',
-  },
-  {
-    icon: '🔒',
-    title: '完全隱私',
-    desc: '資料不外傳，所有運算在本地瀏覽器完成',
-  },
-];

@@ -23,3 +23,11 @@ This file is used to document and manage update items prior to every Merge Reque
     * Added a cleanup script to terminate servers and free ports: `npm stop`.
   * **🛠️ Pathing Specifications (Relative Path Rule)**:
     * Created `.agents/AGENTS.md` and added "Relative Paths Rule" in the development guidelines and AI Agent execution protocols to enforce relative pathing globally, guaranteeing double-click offline execution.
+  * **🌐 System-Wide Bilingual Switching (i18n)**:
+    * Integrated translation dictionary support across the LandingPage, TopBar, PlayBar, ChartPanel, and Sidebar.
+    * Added language selection dropdown menus (supporting English and Traditional Chinese) at the top-right corner of both the TopBar and the LandingPage, defaulting to English.
+  * **🛸 3D Camera Limits Removal & Frustum Culling Fix (Attitude3dPanel)**:
+    * Expanded 3D camera zoom range (from 1.0m to 2000m) and removed camera pitch boundaries (allowing 0.01 to \u03c0 - 0.01), enabling users to inspect the flight path from any perspective, including directly underneath the drone.
+    * Fixed a WebGL frustum culling bug where path lines would disappear at certain camera rotation angles by forcing `computeBoundingSphere` and `computeBoundingBox` recalculation upon line vertex updates.
+  * **🗺️ 2D Terrain Relief Layer (MapPanel)**:
+    * Introduced a "Terrain" map option (overlaying Google Terrain tiles `lyrs=p`) alongside Satellite and Roadmap, providing hillshading, land reliefs, and contour lines overlay visualization.

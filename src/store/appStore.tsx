@@ -42,6 +42,7 @@ const INITIAL_STATE: AppState = {
   layout: DEFAULT_LAYOUT,
   playback: INITIAL_PLAYBACK,
   selectedTopics: new Set(),
+  language: 'en',
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ type Action =
   | { type: 'REMOVE_PANEL'; panelId: string }
   | { type: 'SET_PANEL_TYPE'; panelId: string; panelType: PanelType }
   | { type: 'SET_PLAYBACK'; playback: Partial<PlaybackState> }
+  | { type: 'SET_LANGUAGE'; language: 'en' | 'zh' }
   | { type: 'RESET' };
 
 type LeafPanel = Extract<PanelLayout['panels'][0], { id: string }>;
@@ -244,9 +246,12 @@ function appReducer(state: AppState, action: Action): AppState {
     case 'SET_PLAYBACK':
       return { ...state, playback: { ...state.playback, ...action.playback } };
 
+    case 'SET_LANGUAGE':
+      return { ...state, language: action.language };
+
     case 'RESET':
       getWorkerBridge().reset();
-      return { ...INITIAL_STATE };
+      return { ...INITIAL_STATE, language: state.language };
 
     default:
       return state;

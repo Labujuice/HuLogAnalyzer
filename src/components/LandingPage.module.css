@@ -219,3 +219,43 @@
   color: var(--clr-text-secondary);
   line-height: 1.4;
 }
+
+.langSelector {
+  position: absolute;
+  top: var(--sp-4);
+  right: var(--sp-4);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--clr-border);
+  padding: 6px var(--sp-3);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(8px);
+}
+
+.langLabel {
+  font-size: 11px;
+  color: var(--clr-text-secondary);
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+.select {
+  background: #0f172a;
+  color: var(--clr-text-primary);
+  border: 1px solid var(--clr-border);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.select:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { usePlayback } from '../store/appStore';
+import { useApp } from '../store/appStore';
 import { timePublisher } from '../store/timePublisher';
 import { formatRelativeTime, formatUtcTime } from '../parser/utils';
 import styles from './PlayBar.module.css';
@@ -7,7 +7,13 @@ import styles from './PlayBar.module.css';
 const SPEEDS = [0.25, 0.5, 1, 2, 5, 10];
 
 export function PlayBar() {
-  const { playback, setPlayback } = usePlayback();
+  const { state, dispatch } = useApp();
+  const { playback, language } = state;
+  
+  const setPlayback = useCallback((p: Partial<typeof playback>) => {
+    dispatch({ type: 'SET_PLAYBACK', playback: p });
+  }, [dispatch]);
+
   const rafRef = useRef<number>(0);
   const lastTsRef = useRef<number>(0);
   const lastStateUpdateMsRef = useRef<number>(0);
@@ -46,7 +52,7 @@ export function PlayBar() {
     const dtMs = now - lastTsRef.current;
     lastTsRef.current = now;
 
-    // 檢測外部尋跡（如點擊進度條）：如果目前的 state 時間與我們上次 dispatch 的時間不同，說明是外部修改，進行同步
+    // 同步外部尋軌 (例如手動拖動進度條)
     if (Math.abs(p.currentTimeUs - lastDispatchedTimeRef.current) > 1000) {
       currentTimeRef.current = p.currentTimeUs;
     }
@@ -60,64 +66,71 @@ export function PlayBar() {
     }
 
     currentTimeRef.current = nextTimeUs;
-    lastDispatchedTimeRef.current = nextTimeUs;
 
-    // 1. 直發高頻時間信號給 3D、AHRS、uPlot 與本地 DOM，完全跳過 React render 流程
+    // 1. 每幀 (60fps) 直接用原生 DOM 操作更新時間文字與進度條，跳過 React render 負載
+    if (currentTimeTextRef.current) {
+      currentTimeTextRef.current.textContent = formatTime(nextTimeUs);
+    }
+    if (progressFillRef.current && progressThumbRef.current && duration > 0) {
+      const pct = Math.min(100, Math.max(0, ((nextTimeUs - startTimeUs) / duration) * 100));
+      progressFillRef.current.style.width = `${pct}%`;
+      progressThumbRef.current.style.left = `${pct}%`;
+    }
+
+    // 2. 每幀 (60fps) 透過純 JS PubSub 發佈事件，驅動 ThreeJS、Canvas 與 Leaflet
     timePublisher.setTime(nextTimeUs);
 
-    // 2. 節流 (Throttle 500ms) 寫回 React 狀態以同步其他非即時性元件
+    // 3. 每 500ms (2Hz) Throttled 寫入 React AppStore 全域狀態，僅同步其他低頻 React 元件
     if (now - lastStateUpdateMsRef.current > 500) {
-      lastStateUpdateMsRef.current = now;
+      lastDispatchedTimeRef.current = nextTimeUs;
       setPlayback({ currentTimeUs: nextTimeUs });
+      lastStateUpdateMsRef.current = now;
     }
 
     rafRef.current = requestAnimationFrame(tick);
-  }, [setPlayback]);
+  }, [setPlayback, formatTime, startTimeUs, duration]);
 
-  // 訂閱 timePublisher 以接收時間跳轉 (Seek / 播放更新)，同步更新進度條與文字
-  useEffect(() => {
-    const unsubscribe = timePublisher.subscribe((timeUs) => {
-      const dur = playbackRef.current.endTimeUs - playbackRef.current.startTimeUs;
-      const progress = dur > 0 ? (timeUs - playbackRef.current.startTimeUs) / dur : 0;
-      const pct = `${progress * 100}%`;
-
-      if (progressFillRef.current) {
-        progressFillRef.current.style.width = pct;
-      }
-      if (progressThumbRef.current) {
-        progressThumbRef.current.style.left = pct;
-      }
-      if (currentTimeTextRef.current) {
-        currentTimeTextRef.current.innerText = formatTime(timeUs);
-      }
-    });
-
-    // 初始位置同步
-    timePublisher.setTime(currentTimeUs);
-
-    return unsubscribe;
-  }, [startTimeUs, formatTime, currentTimeUs]);
-
+  // 監聽播放狀態
   useEffect(() => {
     if (isPlaying) {
-      currentTimeRef.current = currentTimeUs;
-      lastDispatchedTimeRef.current = currentTimeUs;
       lastTsRef.current = 0;
-      lastStateUpdateMsRef.current = performance.now();
       rafRef.current = requestAnimationFrame(tick);
     } else {
-      cancelAnimationFrame(rafRef.current);
-      // 暫停時立刻寫回最新最精準的目前時間
-      setPlayback({ currentTimeUs: currentTimeRef.current });
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     }
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [isPlaying, tick, setPlayback, currentTimeUs]);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [isPlaying, tick]);
 
+  // 監聽外部手動時間點跳轉 (進度條/圖表 Cursor)
+  useEffect(() => {
+    const handleTimeTick = (timeUs: number) => {
+      const p = playbackRef.current;
+      // 如果不是播放中，直接渲染定位點
+      if (!p.isPlaying) {
+        if (currentTimeTextRef.current) {
+          currentTimeTextRef.current.textContent = formatTime(timeUs);
+        }
+        if (progressFillRef.current && progressThumbRef.current && duration > 0) {
+          const pct = Math.min(100, Math.max(0, ((timeUs - startTimeUs) / duration) * 100));
+          progressFillRef.current.style.width = `${pct}%`;
+          progressThumbRef.current.style.left = `${pct}%`;
+        }
+      }
+    };
+    const unsubscribe = timePublisher.subscribe(handleTimeTick);
+    // 初始位置
+    handleTimeTick(timePublisher.getTime());
+    return unsubscribe;
+  }, [formatTime, startTimeUs, duration]);
+
+  // 點擊進度條尋軌
   const onProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const targetUs = startTimeUs + ratio * duration;
-    
+    const pct = (e.clientX - rect.left) / rect.width;
+    const targetUs = startTimeUs + duration * pct;
+
     timePublisher.setTime(targetUs);
     setPlayback({ currentTimeUs: targetUs });
   };
@@ -125,7 +138,12 @@ export function PlayBar() {
   return (
     <div className={styles.root}>
       {/* 進度條 */}
-      <div className={styles.progressWrap} onClick={onProgressClick} role="slider" aria-label="播放進度">
+      <div
+        className={styles.progressWrap}
+        onClick={onProgressClick}
+        role="slider"
+        aria-label={language === 'en' ? 'Playback Progress' : '播放進度'}
+      >
         <div className={styles.progressTrack}>
           <div ref={progressFillRef} className={styles.progressFill} />
           <div ref={progressThumbRef} className={styles.progressThumb} />
@@ -143,7 +161,7 @@ export function PlayBar() {
               timePublisher.setTime(startTimeUs);
               setPlayback({ currentTimeUs: startTimeUs, isPlaying: false });
             }}
-            title="回到起點"
+            title={language === 'en' ? 'Back to Start' : '回到起點'}
             id="btn-playbar-stop"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -157,7 +175,7 @@ export function PlayBar() {
             className={`btn btn--icon ${isPlaying ? 'btn--primary' : ''}`}
             style={!isPlaying ? { background: 'var(--clr-bg-elevated)', borderColor: 'var(--clr-border-strong)' } : {}}
             onClick={() => setPlayback({ isPlaying: !isPlaying })}
-            title={isPlaying ? '暫停' : '播放'}
+            title={isPlaying ? (language === 'en' ? 'Pause' : '暫停') : (language === 'en' ? 'Play' : '播放')}
             id="btn-playbar-play"
           >
             {isPlaying ? (
@@ -188,6 +206,7 @@ export function PlayBar() {
               className={`btn btn--ghost ${styles.speedBtn} ${speedMultiplier === s ? styles.speedActive : ''}`}
               onClick={() => setPlayback({ speedMultiplier: s })}
               id={`btn-speed-${s}`}
+              title={language === 'en' ? `Play speed ${s}x` : `播放倍速 ${s}x`}
             >
               {s}×
             </button>
@@ -195,7 +214,7 @@ export function PlayBar() {
         </div>
 
         {/* UTC 切換 */}
-        <label className={styles.utcToggle} title="切換 UTC / 相對時間">
+        <label className={styles.utcToggle} title={language === 'en' ? 'Toggle UTC / Relative Time' : '切換 UTC / 相對時間'}>
           <span className={styles.utcLabel}>UTC</span>
           <div
             className={`${styles.toggle} ${useUtcTime ? styles.toggleOn : ''}`}

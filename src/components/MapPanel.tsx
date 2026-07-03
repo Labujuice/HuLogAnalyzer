@@ -11,10 +11,11 @@ interface MapPanelProps {
   currentTimeUs: number;
 }
 
-type MapLayerType = 'satellite' | 'roadmap';
+type MapLayerType = 'satellite' | 'roadmap' | 'terrain';
 
 export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
   const { state, requestTopicData } = useApp();
+  const { language } = state;
   const mapContainerRef = useRef<HTMLDivElement>(null);
 
   // Leaflet map instances
@@ -44,7 +45,6 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     if (gpsTopic) {
       const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
       if (!state.topicCache[key]) {
-        // Request lat, lon
         requestTopicData(gpsTopic.name, gpsTopic.multiId, ['lat', 'lon']);
       }
     } else {
@@ -60,7 +60,48 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     }
   }, [gpsTopic, attTopic, state.topicCache, requestTopicData]);
 
-  // Interpolate Roll, Pitch, Yaw
+  // Read GPS Points cache
+  const getGpsData = useCallback((): { points: L.LatLngTuple[] } | null => {
+    if (!gpsTopic) return null;
+    const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
+    const data = state.topicCache[key];
+    if (!data) return null;
+
+    const latArr = data.fields['lat'];
+    const lonArr = data.fields['lon'];
+    if (!latArr || !lonArr) return null;
+
+    const points: L.LatLngTuple[] = [];
+    for (let i = 0; i < data.timestamps.length; i++) {
+      // PX4 GPS values are stored as degrees * 1e7
+      const lat = latArr[i] > 180 ? latArr[i] / 1e7 : latArr[i];
+      const lon = lonArr[i] > 180 ? lonArr[i] / 1e7 : lonArr[i];
+      points.push([lat, lon]);
+    }
+    return { points };
+  }, [gpsTopic, state.topicCache]);
+
+  // Interpolate Position at specific time
+  const getGpsPositionAt = useCallback((timeUs: number): L.LatLngTuple | null => {
+    if (!gpsTopic) return null;
+    const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
+    const data = state.topicCache[key];
+    if (!data) return null;
+
+    const latArr = data.fields['lat'];
+    const lonArr = data.fields['lon'];
+    if (!latArr || !lonArr) return null;
+
+    const rawLat = interpolateAt(data.timestamps, latArr, timeUs);
+    const rawLon = interpolateAt(data.timestamps, lonArr, timeUs);
+
+    const lat = rawLat > 180 ? rawLat / 1e7 : rawLat;
+    const lon = rawLon > 180 ? rawLon / 1e7 : rawLon;
+
+    return [lat, lon];
+  }, [gpsTopic, state.topicCache]);
+
+  // Interpolate Yaw heading at specific time
   const getYawAt = useCallback((timeUs: number): number => {
     if (!attTopic) return 0;
     const key = `${attTopic.name}:${attTopic.multiId}`;
@@ -72,7 +113,7 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     const q2Arr = data.fields['q[2]'];
     const q3Arr = data.fields['q[3]'];
 
-    let roll = 0, pitch = 0, yaw = 0;
+    let q0 = 1, q1 = 0, q2 = 0, q3 = 0;
 
     if (!q0Arr || !q1Arr || !q2Arr || !q3Arr) {
       const qw = data.fields['q_w'] || data.fields['q.w'] || data.fields['q_0'];
@@ -80,134 +121,85 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
       const qy = data.fields['q_y'] || data.fields['q.y'] || data.fields['q_2'];
       const qz = data.fields['q_z'] || data.fields['q.z'] || data.fields['q_3'];
       if (qw && qx && qy && qz) {
-        const q0 = interpolateAt(data.timestamps, qw, timeUs);
-        const q1 = interpolateAt(data.timestamps, qx, timeUs);
-        const q2 = interpolateAt(data.timestamps, qy, timeUs);
-        const q3 = interpolateAt(data.timestamps, qz, timeUs);
-        yaw = Math.atan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2 * q2 + q3 * q3));
+        q0 = interpolateAt(data.timestamps, qw, timeUs);
+        q1 = interpolateAt(data.timestamps, qx, timeUs);
+        q2 = interpolateAt(data.timestamps, qy, timeUs);
+        q3 = interpolateAt(data.timestamps, qz, timeUs);
       }
     } else {
-      const q0 = interpolateAt(data.timestamps, q0Arr, timeUs);
-      const q1 = interpolateAt(data.timestamps, q1Arr, timeUs);
-      const q2 = interpolateAt(data.timestamps, q2Arr, timeUs);
-      const q3 = interpolateAt(data.timestamps, q3Arr, timeUs);
-      yaw = Math.atan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2 * q2 + q3 * q3));
+      q0 = interpolateAt(data.timestamps, q0Arr, timeUs);
+      q1 = interpolateAt(data.timestamps, q1Arr, timeUs);
+      q2 = interpolateAt(data.timestamps, q2Arr, timeUs);
+      q3 = interpolateAt(data.timestamps, q3Arr, timeUs);
     }
 
-    return yaw * 180 / Math.PI; // Convert to degrees
+    // Solve Euler Yaw from quaternions
+    const yaw = Math.atan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2 * q2 + q3 * q3));
+    return (yaw * 180 / Math.PI + 360) % 360;
   }, [attTopic, state.topicCache]);
 
-  // Interpolate Position & entire GPS path array
-  const getGpsData = useCallback((): { points: L.LatLngExpression[] } | null => {
-    if (!gpsTopic) return null;
-    const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
-    const data = state.topicCache[key];
-    if (!data) return null;
-
-    const latArr = data.fields['lat'];
-    const lonArr = data.fields['lon'];
-    if (!latArr || !lonArr) return null;
-
-    // Detect if scaled by 1e7
-    const scale = Math.abs(latArr[0] ?? 0) > 1000 ? 1e7 : 1.0;
-
-    const points: L.LatLngExpression[] = [];
-    for (let i = 0; i < data.timestamps.length; i++) {
-      points.push([latArr[i] / scale, lonArr[i] / scale]);
-    }
-
-    return { points };
-  }, [gpsTopic, state.topicCache]);
-
-  // Interpolate single lat/lon point
-  const getGpsPositionAt = useCallback((timeUs: number): [number, number] | null => {
-    if (!gpsTopic) return null;
-    const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
-    const data = state.topicCache[key];
-    if (!data) return null;
-
-    const latArr = data.fields['lat'];
-    const lonArr = data.fields['lon'];
-    if (!latArr || !lonArr) return null;
-
-    const scale = Math.abs(latArr[0] ?? 0) > 1000 ? 1e7 : 1.0;
-    const lat = interpolateAt(data.timestamps, latArr, timeUs) / scale;
-    const lon = interpolateAt(data.timestamps, lonArr, timeUs) / scale;
-
-    return [lat, lon];
-  }, [gpsTopic, state.topicCache]);
-
-  // Initialize Map
+  // Setup Leaflet Map
   useEffect(() => {
     if (!mapContainerRef.current || !hasGps) return;
 
-    // 1. Create map instance
+    // 1. Initialize Map centered at [0,0]
     const map = L.map(mapContainerRef.current, {
-      zoomControl: false, // Custom position zoom control
+      zoomControl: false,
       attributionControl: false,
-    });
+    }).setView([0, 0], 2);
     mapRef.current = map;
 
-    // Default center at 0,0 until coordinates load
-    map.setView([0, 0], 2);
-
-    // 2. Setup Tile Layer
-    const getTileUrl = (type: MapLayerType) => {
-      // Standard Google Tiles url (m = roadmap, s = satellite, y = hybrid)
-      return type === 'satellite'
-        ? 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
-        : 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
-    };
-
-    const tileLayer = L.tileLayer(getTileUrl(layerType), {
-      maxZoom: 20,
+    // 2. Load Google Satellite Hybrid Layer by default
+    const tileLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 22,
     }).addTo(map);
     tileLayerRef.current = tileLayer;
 
-    // Custom Zoom buttons position
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
-
-    // 3. Create Flight Path Polylines
-    // 尚未飛過的未來航線 (黃色虛線)
+    // 3. Setup Path Polylines
+    // 未走過的軌跡 (黃色虛線)
     const remainingPathPoly = L.polyline([], {
-      color: '#eab308', // Yellow
+      color: '#eab308',
       weight: 3,
-      opacity: 0.8,
-      dashArray: '6, 6',
+      dashArray: '5, 8',
+      opacity: 0.75,
     }).addTo(map);
     remainingPathPolyRef.current = remainingPathPoly;
 
+    // 已走過的軌跡 (紅色實線)
     const activePathPoly = L.polyline([], {
-      color: '#ef4444', // Red (已飛過)
+      color: '#ef4444',
       weight: 4,
       opacity: 0.9,
     }).addTo(map);
     activePathPolyRef.current = activePathPoly;
 
-    // 4. Create Custom Drone Marker with heading rotation
-    // A CSS-styled pointer arrow inside Leaflet DivIcon
+    // 4. Custom Icon (Aircraft pointer with radar ripple)
     const droneIcon = L.divIcon({
       html: `
         <div class="${styles.droneMarkerWrap}">
-          <div id="leaflet-drone-pointer" class="${styles.droneMarkerArrow}"></div>
-          <div class="${styles.droneMarkerPulse}"></div>
+          <div class="${styles.radarPulse}"></div>
+          <div id="leaflet-drone-pointer" class="${styles.droneArrow}">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+              <path d="M12 2L2 22L12 17L22 22L12 2Z" />
+            </svg>
+          </div>
         </div>
       `,
-      iconSize: [30, 30],
-      iconAnchor: [15, 15],
+      className: '',
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
     });
 
     const marker = L.marker([0, 0], { icon: droneIcon }).addTo(map);
     markerRef.current = marker;
 
-    // Find the arrow DOM element once
     const element = marker.getElement();
     if (element) {
       const arrow = element.querySelector('#leaflet-drone-pointer') as HTMLDivElement;
       if (arrow) markerIconRef.current = arrow;
     }
 
-    // 5. Fit Bounds once the entire path becomes available (removed static from init, handled reactively below)
+    // 5. Fit Bounds once (handled reactively below)
 
     // 6. Resize Observer
     const ro = new ResizeObserver(() => {
@@ -241,9 +233,12 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
   // Handle Tile Layer Switch
   useEffect(() => {
     if (!tileLayerRef.current) return;
-    const url = layerType === 'satellite'
-      ? 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
-      : 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
+    let url = 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'; // satellite hybrid
+    if (layerType === 'roadmap') {
+      url = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'; // roadmap
+    } else if (layerType === 'terrain') {
+      url = 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'; // terrain map
+    }
     tileLayerRef.current.setUrl(url);
   }, [layerType]);
 
@@ -261,7 +256,6 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
 
         // Apply Heading Rotation
         const yawDeg = getYawAt(timeUs);
-        // Find pointer inside DOM
         if (!markerIconRef.current) {
           const el = marker.getElement();
           if (el) {
@@ -270,7 +264,6 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
           }
         }
         if (markerIconRef.current) {
-          // Leaflet coordinates usually reset transitions, we override using transform rotate
           markerIconRef.current.style.transform = `rotate(${yawDeg}deg)`;
         }
 
@@ -310,8 +303,6 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     };
 
     const unsubscribe = timePublisher.subscribe(updateGpsMap);
-
-    // Initial sync
     updateGpsMap(timePublisher.getTime());
 
     return unsubscribe;
@@ -321,7 +312,7 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     return (
       <div className={styles.root}>
         <div className={styles.noData}>
-          <span>⚠️ 找不到 GPS 定位數據 (`vehicle_gps_position`)</span>
+          <span>{language === 'en' ? '⚠️ No GPS / position data found' : '⚠️ 找不到 GPS 定位數據 (`vehicle_gps_position`)'}</span>
         </div>
       </div>
     );
@@ -333,18 +324,36 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
       <div className={styles.mapOverlay}>
         <button
           className={`${styles.overlayBtn} ${layerType === 'satellite' ? styles.active : ''}`}
-          onClick={() => setLayerType(layerType === 'satellite' ? 'roadmap' : 'satellite')}
-          title="切換衛星圖 / 道路圖"
+          onClick={() => setLayerType('satellite')}
+          title={language === 'en' ? 'Satellite Hybrid Map' : '切換衛星混合地圖'}
         >
-          {layerType === 'satellite' ? '🗺️ 道路圖' : '🛰️ 衛星圖'}
+          🛰️ {language === 'en' ? 'Satellite' : '衛星圖'}
         </button>
+
+        <button
+          className={`${styles.overlayBtn} ${layerType === 'roadmap' ? styles.active : ''}`}
+          onClick={() => setLayerType('roadmap')}
+          title={language === 'en' ? 'Street Roadmap' : '切換街道向量地圖'}
+        >
+          🗺️ {language === 'en' ? 'Street' : '道路圖'}
+        </button>
+
+        <button
+          className={`${styles.overlayBtn} ${layerType === 'terrain' ? styles.active : ''}`}
+          onClick={() => setLayerType('terrain')}
+          title={language === 'en' ? 'Terrain Map with Hillshading' : '切換等高線地形地貌圖'}
+        >
+          ⛰️ {language === 'en' ? 'Terrain' : '地形圖'}
+        </button>
+
+        <span className={styles.divider}>|</span>
 
         <button
           className={`${styles.overlayBtn} ${followDrone ? styles.active : ''}`}
           onClick={() => setFollowDrone(!followDrone)}
-          title="跟隨飛機位置"
+          title={language === 'en' ? 'Follow vehicle position' : '鎖定跟隨無人機位置'}
         >
-          {followDrone ? '📍 已鎖定' : '📍 跟隨飛機'}
+          📍 {followDrone ? (language === 'en' ? 'Locked' : '已鎖定') : (language === 'en' ? 'Follow' : '跟隨飛機')}
         </button>
 
         <button
@@ -358,9 +367,9 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
               }
             }
           }}
-          title="縮放至完整軌跡"
+          title={language === 'en' ? 'Fit view bounds to entire flight trail' : '縮放至完整飛行軌跡'}
         >
-          🔍 完整視野
+          🔍 {language === 'en' ? 'Fit Path' : '完整視野'}
         </button>
       </div>
 
