@@ -114,8 +114,8 @@ Outputs compiled production assets to `dist/`. Since `base: './'` is configured,
 To maintain a clean version history, this project enforces strict update log rules. Both **human developers** and **AI Coding Agents** must adhere to the following specifications:
 
 ### 1. 更新日誌路徑 / File Path & Dual-Track Files
-* 繁體中文異動記錄必須寫入 / Traditional Chinese changelogs must be written to: [UPDATE_LOG.md](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/UPDATE_LOG.md)
-* 英文異動記錄必須寫入 / English changelogs must be written to: [UPDATE_LOG_EN.md](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/UPDATE_LOG_EN.md)
+* 繁體中文異動記錄必須寫入 / Traditional Chinese changelogs must be written to: [UPDATE_LOG.md](./UPDATE_LOG.md)
+* 英文異動記錄必須寫入 / English changelogs must be written to: [UPDATE_LOG_EN.md](./UPDATE_LOG_EN.md)
 
 ### 2. 分支開發規範 / Branch Development Guidelines
 * 當從 `main` 分支切出新分支進行開發時（例如當前分支 `0704_optimize` 係由 `main` 分支 `2022367` 節點切出）：
@@ -138,7 +138,7 @@ To maintain a clean version history, this project enforces strict update log rul
 ### 🤖 4. 給 AI Agent 的特別調度指令 / Machine-Readable Instructions for LLM & AI Agents
 > [!IMPORTANT]
 > **LLM / AI Agent Action Protocol:**
-> 1. **Read Logs First**: Before writing any code, search and read [UPDATE_LOG.md](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/UPDATE_LOG.md) and [UPDATE_LOG_EN.md](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/UPDATE_LOG_EN.md) to parse the current work state.
+> 1. **Read Logs First**: Before writing any code, search and read [UPDATE_LOG.md](./UPDATE_LOG.md) and [UPDATE_LOG_EN.md](./UPDATE_LOG_EN.md) to parse the current work state.
 > 2. **Identify Current Branch**: Run `git branch` or `git status` to determine the active branch name and its origin parent.
 > 3. **Append Changes Dynamically**: Before finishing the turn or creating a commit, you **MUST** write the details of your modifications to the top section of both `UPDATE_LOG.md` and `UPDATE_LOG_EN.md`. If a new branch was just cut from `main`, you must create the branch section header at the top of the files.
 > 4. **Enforce Relative Paths**: Ensure all file paths, package outputs, and import statements utilize **relative paths** (`./` or `../`). Absolute paths (e.g. `/assets/...`) are strictly prohibited in code references.
