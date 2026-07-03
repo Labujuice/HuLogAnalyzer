@@ -84,5 +84,29 @@ npm run build
 
 ---
 
+## 📝 更新日誌與合併管理規範 (Update Log Rules)
+
+為了維持專案更新歷程的清晰性，本專案採用 `UPDATE_LOG.md` 管理每次代碼合併（Merge Request）前的異動項目。不論是**人類開發人員**或 **AI Coding Agent** 均須嚴格遵守以下操作規範：
+
+### 1. 更新日誌路徑
+所有異動記錄必須寫入專案根目錄下的 `UPDATE_LOG.md` 檔案中。
+
+### 2. 分支開發規範 (Branch Development)
+* 當從 `main` 分支切出新分支進行開發時（例如當前分支 `0704_optimize` 係由 `main` 分支 `2022367` 節點切出）：
+  * 必須在 `UPDATE_LOG.md` 檔案的最頂端建立一個全新的最新區塊。
+  * 區塊標題格式必須為：`## [Branch: 分支名稱] (基於 main 分支 CommitID 節點切出)`。
+  * 於該分支進行的任何調整與功能新增，皆須同步在該區塊的 `更新項目明細` 列表中進行更新。
+
+### 3. 主分支直接提交規範 (Direct Commits on `main`)
+* 如果是直接在 `main` 分支上進行調整或修復：
+  * **每一次的 Commit** 都必須同時修改並更新 `UPDATE_LOG.md`，在最頂端的主分支紀錄區塊（或新增對應日期的區塊）中加上本次 Commit 調整或新增項目的詳細說明。
+
+### 4. 給 AI Agent 的特別指令 (Instructions for LLM / AI Agents)
+* **自動讀取**：AI Agent 在進行任何代碼修改前，應優先讀取 `UPDATE_LOG.md` 以了解目前的更新進度與架構變動。
+* **自動更新**：在確認或交付工作前，AI Agent 應自動執行 `UPDATE_LOG.md` 的寫入，並根據當前運作的分支（可透過 `git status` 或 `git branch` 取得）寫入正確的標記格式，最後連同代碼一起提交 Commit。
+
+---
+
 ## 📄 授權條款
 本專案採用 MIT 授權條款。
+
