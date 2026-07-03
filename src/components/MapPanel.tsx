@@ -20,7 +20,7 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
   // Leaflet map instances
   const mapRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
-  const fullPathPolyRef = useRef<L.Polyline | null>(null);
+  const remainingPathPolyRef = useRef<L.Polyline | null>(null);
   const activePathPolyRef = useRef<L.Polyline | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const markerIconRef = useRef<HTMLDivElement | null>(null); // To apply CSS rotation
@@ -168,16 +168,17 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
     // 3. Create Flight Path Polylines
-    const fullPathPoly = L.polyline([], {
-      color: '#3b82f6',
+    // 尚未飛過的未來航線 (灰色虛線)
+    const remainingPathPoly = L.polyline([], {
+      color: '#64748b', // Slate grey
       weight: 3,
-      opacity: 0.45,
-      dashArray: '5, 5',
+      opacity: 0.6,
+      dashArray: '6, 6',
     }).addTo(map);
-    fullPathPolyRef.current = fullPathPoly;
+    remainingPathPolyRef.current = remainingPathPoly;
 
     const activePathPoly = L.polyline([], {
-      color: '#06b6d4', // Cyan active line
+      color: '#06b6d4', // Cyan active line (已飛過)
       weight: 4,
       opacity: 0.9,
     }).addTo(map);
@@ -209,8 +210,8 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
     // 5. Fit Bounds once the entire path becomes available
     const gpsData = getGpsData();
     if (gpsData && gpsData.points.length > 0) {
-      fullPathPoly.setLatLngs(gpsData.points);
-      map.fitBounds(fullPathPoly.getBounds(), { padding: [30, 30] });
+      const bounds = L.latLngBounds(gpsData.points);
+      map.fitBounds(bounds, { padding: [30, 30] });
     }
 
     // 6. Resize Observer
@@ -262,8 +263,8 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
           markerIconRef.current.style.transform = `rotate(${yawDeg}deg)`;
         }
 
-        // Draw active path
-        if (activePathPolyRef.current && gpsTopic) {
+        // Draw active path (0 -> lo) and remaining path (lo -> end)
+        if (gpsTopic) {
           const key = `${gpsTopic.name}:${gpsTopic.multiId}`;
           const data = state.topicCache[key];
           if (data) {
@@ -276,8 +277,16 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
             }
             const gpsData = getGpsData();
             if (gpsData) {
-              const activePoints = gpsData.points.slice(0, lo + 1);
-              activePathPolyRef.current.setLatLngs(activePoints);
+              // 已飛過的路徑
+              if (activePathPolyRef.current) {
+                const activePoints = gpsData.points.slice(0, lo + 1);
+                activePathPolyRef.current.setLatLngs(activePoints);
+              }
+              // 尚未飛過的路徑
+              if (remainingPathPolyRef.current) {
+                const remainingPoints = gpsData.points.slice(lo);
+                remainingPathPolyRef.current.setLatLngs(remainingPoints);
+              }
             }
           }
         }
@@ -330,9 +339,10 @@ export function MapPanel({ panelId, currentTimeUs }: MapPanelProps) {
         <button
           className={styles.overlayBtn}
           onClick={() => {
-            if (mapRef.current && fullPathPolyRef.current) {
-              const bounds = fullPathPolyRef.current.getBounds();
-              if (bounds.isValid()) {
+            if (mapRef.current) {
+              const gpsData = getGpsData();
+              if (gpsData && gpsData.points.length > 0) {
+                const bounds = L.latLngBounds(gpsData.points);
                 mapRef.current.fitBounds(bounds, { padding: [20, 20] });
               }
             }

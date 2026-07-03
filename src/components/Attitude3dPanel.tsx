@@ -18,7 +18,8 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const droneRef = useRef<THREE.Group | null>(null);
-  const fullPathLineRef = useRef<THREE.Line | null>(null);
+  const remainingPathLineRef = useRef<THREE.Line | null>(null);
+  const remainingGeomRef = useRef<THREE.BufferGeometry | null>(null);
   const activePathLineRef = useRef<THREE.Line | null>(null);
   const activeGeomRef = useRef<THREE.BufferGeometry | null>(null);
 
@@ -231,16 +232,17 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     });
 
     // 5. Initialize Path Lines
-    // 背景全局虛線/淡線飛行軌跡
-    const fullGeom = new THREE.BufferGeometry();
-    const fullMat = new THREE.LineBasicMaterial({
-      color: '#3b82f6',
+    // 尚未飛過的未來航線 (灰色)
+    const remainingGeom = new THREE.BufferGeometry();
+    const remainingMat = new THREE.LineBasicMaterial({
+      color: '#475569', // Slate-600
       transparent: true,
-      opacity: 0.2,
+      opacity: 0.5,
     });
-    const fullPathLine = new THREE.Line(fullGeom, fullMat);
-    scene.add(fullPathLine);
-    fullPathLineRef.current = fullPathLine;
+    const remainingPathLine = new THREE.Line(remainingGeom, remainingMat);
+    scene.add(remainingPathLine);
+    remainingPathLineRef.current = remainingPathLine;
+    remainingGeomRef.current = remainingGeom;
 
     // 播放中已飛過的發光航線
     const activeGeom = new THREE.BufferGeometry();
@@ -328,13 +330,8 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       if (pos) {
         droneRef.current.position.set(pos.x, pos.y, pos.z);
 
-        // 初始化背景全局虛線軌跡
-        if (fullPathLineRef.current && fullPathLineRef.current.geometry.getAttribute('position') === undefined) {
-          fullPathLineRef.current.geometry.setFromPoints(pos.points);
-        }
-
-        // 更新目前已飛過的時間點軌跡點
-        if (activeGeomRef.current && posTopic) {
+        // 更新目前已飛過的時間點軌跡點 (0 -> lo) 與尚未飛過的軌跡點 (lo -> end)
+        if (posTopic) {
           const key = `${posTopic.name}:${posTopic.multiId}`;
           const data = state.topicCache[key];
           if (data) {
@@ -345,8 +342,18 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
               if (data.timestamps[mid] < timeUs) lo = mid + 1;
               else hi = mid;
             }
-            const activePoints = pos.points.slice(0, lo + 1);
-            activeGeomRef.current.setFromPoints(activePoints);
+
+            // 已飛過的路徑
+            if (activeGeomRef.current) {
+              const activePoints = pos.points.slice(0, lo + 1);
+              activeGeomRef.current.setFromPoints(activePoints);
+            }
+
+            // 尚未飛過的路徑
+            if (remainingGeomRef.current) {
+              const remainingPoints = pos.points.slice(lo);
+              remainingGeomRef.current.setFromPoints(remainingPoints);
+            }
           }
         }
       }
