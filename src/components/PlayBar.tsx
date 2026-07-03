@@ -23,6 +23,7 @@ export function PlayBar() {
   playbackRef.current = playback;
 
   const currentTimeRef = useRef<number>(0);
+  const lastDispatchedTimeRef = useRef<number>(0);
 
   // RAF 驅動播放
   const tick = useCallback((now: number) => {
@@ -33,9 +34,8 @@ export function PlayBar() {
     const dtMs = now - lastTsRef.current;
     lastTsRef.current = now;
 
-    // 若外部（如進度條點擊）時間發生較大改變（大於 100ms），同步播放計時器
-    const diffUs = Math.abs(currentTimeRef.current - p.currentTimeUs);
-    if (diffUs > 100000) {
+    // 檢測外部尋跡（如點擊進度條）：如果目前的 state 時間與我們上次 dispatch 的時間不同，說明是外部修改，進行同步
+    if (Math.abs(p.currentTimeUs - lastDispatchedTimeRef.current) > 1000) {
       currentTimeRef.current = p.currentTimeUs;
     }
 
@@ -47,6 +47,7 @@ export function PlayBar() {
     }
 
     currentTimeRef.current = nextTimeUs;
+    lastDispatchedTimeRef.current = nextTimeUs;
     setPlayback({ currentTimeUs: nextTimeUs });
     rafRef.current = requestAnimationFrame(tick);
   }, [setPlayback]);
@@ -54,6 +55,7 @@ export function PlayBar() {
   useEffect(() => {
     if (isPlaying) {
       currentTimeRef.current = currentTimeUs;
+      lastDispatchedTimeRef.current = currentTimeUs;
       lastTsRef.current = 0;
       rafRef.current = requestAnimationFrame(tick);
     } else {
