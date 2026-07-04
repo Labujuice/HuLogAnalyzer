@@ -78,7 +78,7 @@ export function TopBar() {
             className={styles.link}
             title={language === 'zh' ? '更新日誌' : 'Changelog'}
           >
-            v1.1.2_20260704
+            v1.2.0_20260705
           </a>
           <span className={styles.divider}>|</span>
         </div>
