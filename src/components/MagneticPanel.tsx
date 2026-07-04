@@ -34,9 +34,9 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
   useEffect(() => {
     if (!state.summary) return;
     
-    // 掃描所有的 vehicle_magnetometer 實例 (multiId 0, 1, 2...)
+    // 掃描所有的 vehicle_magnetometer 或 sensor_mag 實例 (multiId 0, 1, 2...)
     const instances = state.summary.topics
-      .filter(t => t.name === 'vehicle_magnetometer')
+      .filter(t => t.name === 'vehicle_magnetometer' || t.name === 'sensor_mag')
       .map(t => ({ name: t.name, multiId: t.multiId }));
     setMagInstances(instances);
 
@@ -48,10 +48,13 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
     // 請求所有磁力計的 fields
     instances.forEach(inst => {
       const magTopic = state.summary!.topics.find(t => t.name === inst.name && t.multiId === inst.multiId)!;
+      const desiredFields = magTopic.fields.filter(
+        f => f.startsWith('magnetometer_ga') || f === 'x' || f === 'y' || f === 'z'
+      );
       neededTopics.push({
         name: inst.name,
         multiId: inst.multiId,
-        fields: magTopic.fields.filter(f => f.startsWith('magnetometer_ga'))
+        fields: desiredFields
       });
     });
 
@@ -120,9 +123,9 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
         magInstances.forEach((inst, idx) => {
           const cache = state.topicCache[`${inst.name}:${inst.multiId}`];
           if (cache && cache.count > 0) {
-            const mx = cache.fields['magnetometer_ga[0]'];
-            const my = cache.fields['magnetometer_ga[1]'];
-            const mz = cache.fields['magnetometer_ga[2]'];
+            const mx = cache.fields['magnetometer_ga[0]'] || cache.fields['x'];
+            const my = cache.fields['magnetometer_ga[1]'] || cache.fields['y'];
+            const mz = cache.fields['magnetometer_ga[2]'] || cache.fields['z'];
             
             if (mx && my && mz) {
               const norm = new Float32Array(n);

@@ -36,9 +36,11 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
   const { state, requestTopicData } = useApp();
   
   const stickContainerRef = useRef<HTMLDivElement>(null);
+  const modeContainerRef = useRef<HTMLDivElement>(null);
   const failsafeContainerRef = useRef<HTMLDivElement>(null);
   
   const stickChartRef = useRef<uPlot | null>(null);
+  const modeChartRef = useRef<uPlot | null>(null);
   const failsafeChartRef = useRef<uPlot | null>(null);
 
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -59,9 +61,10 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     if (!state.summary) return;
     const topics = state.summary.topics;
 
-    // 優先尋找 manual_control_setpoint，若無則 fallback 到 rc_channels
+    // 優先尋找 manual_control_setpoint -> rc_channels -> input_rc
     const stickTopic = topics.find(t => t.name === 'manual_control_setpoint') 
-      || topics.find(t => t.name === 'rc_channels');
+      || topics.find(t => t.name === 'rc_channels')
+      || topics.find(t => t.name === 'input_rc');
     
     const statusTopic = topics.find(t => t.name === 'vehicle_status');
     if (!statusTopic) return;
@@ -80,9 +83,14 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     ];
 
     if (stickTopic) {
-      const desiredSticks = stickTopic.name === 'manual_control_setpoint' 
-        ? ['x', 'y', 'z', 'r'] 
-        : ['channels[0]', 'channels[1]', 'channels[2]', 'channels[3]'];
+      let desiredSticks: string[] = [];
+      if (stickTopic.name === 'manual_control_setpoint') {
+        desiredSticks = ['x', 'y', 'z', 'r'];
+      } else if (stickTopic.name === 'rc_channels') {
+        desiredSticks = ['channels[0]', 'channels[1]', 'channels[2]', 'channels[3]'];
+      } else {
+        desiredSticks = ['values[0]', 'values[1]', 'values[2]', 'values[3]'];
+      }
       const stickFields = desiredSticks.filter(f => stickTopic.fields.includes(f));
       
       needed.push({ name: stickTopic.name, fields: stickFields });
@@ -202,7 +210,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     }
   }, [currentTimeUs, isDataLoaded, state.topicCache, state.summary]);
 
-  // 4. 折線圖繪製
+  // 4. 折線圖與階躍圖繪製
   const renderCharts = useCallback(() => {
     if (!state.summary || !isDataLoaded) return;
     const startLogUs = state.summary.startTimestampUs;
@@ -217,6 +225,8 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
         let sr: any = null;
 
         const isRawRc = stickTopicName === 'rc_channels';
+        const isInputRc = stickTopicName === 'input_rc';
+
         if (isRawRc) {
           const c0 = stickCache.fields['channels[0]']; // Roll
           const c1 = stickCache.fields['channels[1]']; // Pitch
@@ -224,7 +234,26 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
           const c3 = stickCache.fields['channels[3]']; // Yaw
 
           if (c0 && c1 && c2 && c3) {
-            // 歸一化函數：若為原始 microsecond PWM (1000~2000)，將其歸一化到 -1~1
+            const normalize = (arr: any) => {
+              const res = new Float32Array(arr.length);
+              const isRaw = arr[0] > 500;
+              for (let i = 0; i < arr.length; i++) {
+                res[i] = isRaw ? (arr[i] - 1500) / 500 : arr[i];
+              }
+              return res;
+            };
+            sx = normalize(c1); // Pitch
+            sy = normalize(c0); // Roll
+            sz = normalize(c2); // Throttle
+            sr = normalize(c3); // Yaw
+          }
+        } else if (isInputRc) {
+          const c0 = stickCache.fields['values[0]']; // Roll
+          const c1 = stickCache.fields['values[1]']; // Pitch
+          const c2 = stickCache.fields['values[2]']; // Throttle
+          const c3 = stickCache.fields['values[3]']; // Yaw
+
+          if (c0 && c1 && c2 && c3) {
             const normalize = (arr: any) => {
               const res = new Float32Array(arr.length);
               const isRaw = arr[0] > 500;
@@ -264,7 +293,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             scales: { x: { time: false }, y: { min: -1.1, max: 1.1 } },
             axes: [
               { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
-              { label: 'Stick / RC Inputs', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3 }
+              { label: 'Stick Inputs', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3 }
             ],
             series: [
               { label: 'Time (s)' },
@@ -274,27 +303,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
               { label: 'Yaw', stroke: '#3b82f6', width: 1.2, points: { show: false } }
             ],
             hooks: {
-              drawClear: [
-                (u: uPlot) => {
-                  const ctx = u.ctx;
-                  transitions.forEach(t => {
-                    const x0 = u.valToPos(t.startS, 'x', true);
-                    const x1 = u.valToPos(t.endS, 'x', true);
-                    
-                    ctx.save();
-                    ctx.fillStyle = t.color;
-                    ctx.fillRect(x0, u.bbox.top, x1 - x0, u.bbox.height);
-                    
-                    if (x1 - x0 > 40) {
-                      ctx.fillStyle = '#64748b';
-                      ctx.font = '9px system-ui, sans-serif';
-                      ctx.textBaseline = 'top';
-                      ctx.fillText(t.modeName, x0 + 4, u.bbox.top + 4);
-                    }
-                    ctx.restore();
-                  });
-                }
-              ],
               drawAxes: [
                 (u: uPlot) => {
                   const timeSec = (currentTimeUs - startLogUs) / 1e6;
@@ -318,8 +326,100 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
       }
     }
 
-    // ─── B. 安全防護 (Failsafe & RC Lost) 狀態時序圖 ───
+    // ─── B. 獨立飛行模式與解鎖狀態 step 折線圖 ───
     const statusCache = state.topicCache['vehicle_status:0'];
+    if (statusCache && statusCache.count > 0) {
+      const nav = statusCache.fields['nav_state'];
+      const arm = statusCache.fields['arming_state'];
+
+      if (nav && arm && modeContainerRef.current) {
+        modeChartRef.current?.destroy();
+        modeChartRef.current = null;
+
+        const n = statusCache.count;
+        const xsSec = new Float64Array(n);
+        const armBinary = new Float32Array(n);
+        const navValues = new Float32Array(n);
+
+        for (let i = 0; i < n; i++) {
+          xsSec[i] = (statusCache.timestamps[i] - startLogUs) / 1e6;
+          navValues[i] = Number(nav[i]);
+          armBinary[i] = Number(arm[i]) === 2 ? 1 : 0; // 2 = ARMED
+        }
+
+        const uPlotData: uPlot.AlignedData = [xsSec, navValues, armBinary];
+        const rect = modeContainerRef.current.getBoundingClientRect();
+
+        const opts: uPlot.Options = {
+          width: Math.max(100, Math.floor(rect.width)),
+          height: Math.max(80, Math.floor(rect.height)),
+          scales: {
+            x: { time: false },
+            mode: { auto: true },
+            arm: { min: -0.1, max: 1.1 }
+          },
+          axes: [
+            { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
+            {
+              scale: 'mode',
+              label: 'Flight Mode',
+              stroke: '#10b981',
+              font: '10px JetBrains Mono, monospace',
+              side: 3,
+              values: (u, vals) => vals.map(v => Number.isInteger(v) ? (NAV_STATE_MAP[v] || `State ${v}`) : '')
+            },
+            {
+              scale: 'arm',
+              label: 'Arm Status',
+              stroke: '#ef4444',
+              font: '10px JetBrains Mono, monospace',
+              side: 1,
+              values: (u, vals) => vals.map(v => v === 1 ? 'ARMED' : v === 0 ? 'DISARMED' : '')
+            }
+          ],
+          series: [
+            { label: 'Time (s)' },
+            {
+              label: 'Flight Mode',
+              stroke: '#10b981',
+              width: 2,
+              scale: 'mode',
+              paths: (uPlot.paths as any)?.stepped ? (uPlot.paths as any).stepped({ align: 1 }) : undefined,
+              points: { show: false }
+            } as any,
+            {
+              label: 'Arm State',
+              stroke: '#ef4444',
+              width: 1.5,
+              scale: 'arm',
+              paths: (uPlot.paths as any)?.stepped ? (uPlot.paths as any).stepped({ align: 1 }) : undefined,
+              points: { show: false }
+            } as any
+          ],
+          hooks: {
+            drawAxes: [
+              (u: uPlot) => {
+                const timeSec = (currentTimeUs - startLogUs) / 1e6;
+                const cx = u.valToPos(timeSec, 'x', true);
+                if (cx >= u.bbox.left && cx <= u.bbox.left + u.bbox.width) {
+                  u.ctx.save();
+                  u.ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+                  u.ctx.setLineDash([3, 3]);
+                  u.ctx.beginPath();
+                  u.ctx.moveTo(cx, u.bbox.top);
+                  u.ctx.lineTo(cx, u.bbox.top + u.bbox.height);
+                  u.ctx.stroke();
+                  u.ctx.restore();
+                }
+              }
+            ]
+          }
+        };
+        modeChartRef.current = new uPlot(opts, uPlotData, modeContainerRef.current);
+      }
+    }
+
+    // ─── C. 安全防護 (Failsafe & RC Lost) 狀態時序圖 ───
     if (statusCache && statusCache.count > 0 && failsafeContainerRef.current) {
       const fs = statusCache.fields['failsafe'];
       const rcLost = statusCache.fields['rc_signal_lost'];
@@ -392,6 +492,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
   // 播放時間更新時重繪
   useEffect(() => {
     if (stickChartRef.current) stickChartRef.current.redraw(false);
+    if (modeChartRef.current) modeChartRef.current.redraw(false);
     if (failsafeChartRef.current) failsafeChartRef.current.redraw(false);
   }, [currentTimeUs]);
 
@@ -402,6 +503,10 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
         const rect = stickContainerRef.current.getBoundingClientRect();
         stickChartRef.current.setSize({ width: Math.max(50, rect.width), height: Math.max(50, rect.height) });
       }
+      if (modeChartRef.current && modeContainerRef.current) {
+        const rect = modeContainerRef.current.getBoundingClientRect();
+        modeChartRef.current.setSize({ width: Math.max(50, rect.width), height: Math.max(50, rect.height) });
+      }
       if (failsafeChartRef.current && failsafeContainerRef.current) {
         const rect = failsafeContainerRef.current.getBoundingClientRect();
         failsafeChartRef.current.setSize({ width: Math.max(50, rect.width), height: Math.max(50, rect.height) });
@@ -410,6 +515,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
 
     const ro = new ResizeObserver(handleResize);
     if (stickContainerRef.current) ro.observe(stickContainerRef.current);
+    if (modeContainerRef.current) ro.observe(modeContainerRef.current);
     if (failsafeContainerRef.current) ro.observe(failsafeContainerRef.current);
     return () => ro.disconnect();
   }, []);
@@ -439,11 +545,11 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
       <div className={styles.container}>
         {/* 左側時序圖 */}
         <div className={styles.chartColumn}>
-          {/* 操縱桿與模式背景 */}
+          {/* 操縱桿輸入 */}
           <div className={styles.card}>
             <div className={styles.cardHeader}>
               <span className={styles.cardTitle}>
-                🎮 {state.language === 'en' ? 'Pilot Intervention (Stick Inputs) & Modes' : `遙控器操縱桿輸入 (${stickTopicName}) 與飛行模式`}
+                🎮 {state.language === 'en' ? 'Pilot Intervention (Stick Inputs)' : `遙控器操縱桿輸入 (${stickTopicName})`}
               </span>
             </div>
             {!hasSticks ? (
@@ -453,6 +559,22 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             ) : (
               <div className={styles.chartWrapper}>
                 <div ref={stickContainerRef} className={styles.chartArea} />
+              </div>
+            )}
+          </div>
+
+          {/* 飛行模式與解鎖狀態 (獨立圖表) */}
+          <div className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className={styles.cardTitle}>
+                🔄 {state.language === 'en' ? 'Flight Mode & Arming History' : '飛行模式與解鎖狀態時序圖'}
+              </span>
+            </div>
+            {!isDataLoaded ? (
+              <div className={styles.emptyHint}>{state.language === 'en' ? 'Loading Mode Status...' : '載入解鎖與模式數據中...'}</div>
+            ) : (
+              <div className={styles.chartWrapper}>
+                <div ref={modeContainerRef} className={styles.chartArea} />
               </div>
             )}
           </div>
