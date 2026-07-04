@@ -58,3 +58,7 @@ This file is used to document and manage update items prior to every Merge Reque
       6. `kabibala`: Features a cute capybara cylinder body, boxy face, small ears, black eyes/snout, and four legs that jog back and forth.
     * Utilized `modelTypeRef`, `isPlayingRef`, and `speedMultiplierRef` to bypass React stale closure snapshots, fixing the issue where propellers remained static during playback.
     * Added a `sceneReady` state synchronization check inside the model builder `useEffect` dependencies, correcting the rendering issue where the drone model sometimes failed to render or disappeared on initial 3D panel mount.
+  * **📄 Open Source License Declaration (LICENSE)**:
+    * Created the MIT license declaration file [LICENSE](./LICENSE) in the workspace root directory.
+  * **🎨 Drag-and-Drop Area Styling Restoration (LandingPage)**:
+    * Corrected a camelCase spelling typo for the dropzone container class in the landing page component (`dropzone` -> `dropZone`, `dropzoneActive` -> `dragOver`), successfully restoring the dashed border, glassmorphism glow effect, and hover scale transition properties for the drag-and-drop file upload target.

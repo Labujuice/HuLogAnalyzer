@@ -114,7 +114,7 @@ export function LandingPage() {
 
         {/* 拖曳上傳區塊 */}
         <div
-          className={`${styles.dropzone} ${isDragOver ? styles.dropzoneActive : ''}`}
+          className={`${styles.dropZone} ${isDragOver ? styles.dragOver : ''}`}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}

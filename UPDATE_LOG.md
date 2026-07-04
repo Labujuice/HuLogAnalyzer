@@ -58,3 +58,7 @@
       6. `kabibala`：呆萌水豚模型，包含桶形軀幹、大頭、圓耳朵及瞇瞇眼，前行時四條小短腿會快速交替奔跑。
     * 藉由 `modelTypeRef` 與播放狀態的 `isPlayingRef`、`speedMultiplierRef` 繞過 React 閉包快照，修正播放時螺旋槳不旋轉與動態零件動畫靜止的 stale closure 漏洞，確保 60 FPS 渲染循環中動態零件（槳旋轉、輪捲動、雙翼拍打、四肢擺動）的動畫流暢度。
     * 新增 `sceneReady` 狀態門控機制，將其與模型構建 `useEffect` 進行同步綁定，修正 3D 檢視面板初始化首次載入時無人機模型偶發消失或未成功加載的渲染漏洞。
+  * **📄 專案開源授權聲明 (LICENSE)**：
+    * 於專案根目錄新增 MIT 授權條款宣告檔案 [LICENSE](./LICENSE)，與 `README.md` 開源條款聲明呼應。
+  * **🎨 拖曳上傳區塊樣式修復 (LandingPage)**：
+    * 修正首頁拖曳區的 camelCase 類名大小寫拼寫錯誤（`dropzone` 改為 `dropZone`，`dropzoneActive` 改為 `dragOver`），成功恢復虛線方框、背景微發光與拖曳時放大回饋之精美玻璃態外觀，指引用戶進行拖曳上傳。
