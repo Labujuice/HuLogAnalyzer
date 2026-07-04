@@ -4,6 +4,27 @@ This file is used to document and manage update items prior to every Merge Reque
 
 ---
 
+## [Branch: 0705_plot_feature] (Cut from main branch at commit `d04f305`)
+* **Date**: 2026-07-05
+* **Status**: Completed / Pending Merge
+* **Changelog Details**:
+  * **✈️ Flight Status & Mode Analysis (StatusModePanel)**:
+    * **Independent Flight Mode & Arming Chart**: Extracted Flight Mode and Arming State into an independent chart (`Flight Mode & Arming History`), plotting them using stepped lines. Supports double Y axes (left for Arm/Disarmed, right for PX4 mode string labels such as POSCTL, ALTCTL, RTL...), perfectly aligned with stick inputs and failsafe charts.
+    * **Multi-Mode Stick Input Tabs**: Loads `manual_control_setpoint`, `rc_channels`, and `input_rc` simultaneously in the background. Added sub-tabs `[Setpoint]`, `[RC Channels]`, and `[Raw RC]` at the top-right corner of the stick input chart for quick user comparison.
+    * **Full RC Channels & PWM Plotting**: Switching to the `Raw RC (PWM us)` tab automatically decodes and plots all available channels of `input_rc.values[0..n]`, automatically locking the Y-axis range to `850 ~ 2150 us` to display auxiliary switches and fine-tuning knobs.
+    * **Mission Event Log**: Refined the console output on the right to display Mode Transitions and Safety & Failsafe Events clearly.
+  * **🧲 Multi-Magnetometer Norm & EKF GSF Heading Comparison (MagneticPanel)**:
+    * **Automatic `sensor_mag` Topic Adaptation**: Scans and loads all `vehicle_magnetometer` or `sensor_mag` topic instances (Compass 0, 1, 2...). Adapts to both `magnetometer_ga` and legacy `x`/`y`/`z` field formats, plotting all aligned norms on the same Vector Norm chart.
+    * **Raw 3-Axis Magnetic Values Chart**: Added a third chart `Raw 3-Axis Magnetic Values` to the left column plotting raw X, Y, and Z curves in Gauss, complete with a dropdown selector to view different compass instances.
+    * **Pure Magnetometer Tilt-Compensated Headings**: Decodes roll and pitch from `vehicle_attitude` to project the 3D magnetic readings of all detected compasses onto the horizontal plane, plotting their independent pure magnetic headings (Yellow, Purple, Cyan curves) on the Heading Comparison chart.
+    * **Independent Checkbox Selector**: Added checkboxes in the heading chart header (EKF Yaw, GSF Yaw, GPS COG, Mag 0/1/2 Yaw) to toggle line visibility independently from the raw data compass dropdown.
+    * **Comprehensive Compass Diagnostics**: Lists the computed average norm, fluctuation variation, and EMI warnings for all detected compasses in the right-hand board.
+  * **📊 Scroll Wheel Zoom & Zoom Sync in Toolbox Panels**:
+    * Enabled mouse wheel zoom events (`'wheel'`) on all toolbox charts (FFT, PID, Magnetic, Status/Modes, and Actuator Outputs).
+    * Linked multi-chart panels (PID, Magnetic, Status/Modes) with shared `uPlot.sync` instances, synchronizing mouse cursor tracking, horizontal panning, and scroll wheel zooming across all sub-graphs.
+  * **⚡ Direct Blank Chart Initialization for New Panels**:
+    * Updated [appStore.tsx](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/src/store/appStore.tsx) to initialize newly created split panels (`SPLIT_PANEL`) or collapsed resets (`REMOVE_PANEL`) directly as `type: 'chart'` (blank chart). This removes the empty-state selection menu, allowing users to drag fields immediately.
+
 ## [Branch: 0704_optimize] (Cut from main branch at commit `2022367`)
 * **Date**: 2026-07-04
 * **Status**: In Development / Pending Merge
