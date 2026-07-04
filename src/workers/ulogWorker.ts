@@ -6,7 +6,10 @@
  */
 
 import { ULogParser } from '../parser/ULogParser';
-import { lttbDownsample, getLttbIndices } from '../parser/utils';
+import { lttbDownsample, getLttbIndices, sliceByTimeRange } from '../parser/utils';
+import { computeFFTAmplitude } from '../parser/fft';
+import { computeRMSE, computeCorrelation, detectLagUs, interpolateSeries } from '../parser/mathUtils';
+import { executeCustomCalculation } from '../parser/customCalcParser';
 import type { WorkerRequest, WorkerResponse } from '../types/ulog';
 
 let parser: ULogParser | null = null;
@@ -166,6 +169,177 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           message: err instanceof Error ? err.message : String(err),
         };
         self.postMessage(errResp);
+      }
+      break;
+    }
+
+    case 'COMPUTE_FFT': {
+      if (!parser) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '尚未解析 any ULog 檔案。' });
+        return;
+      }
+      try {
+        const topicData = parser.getTopicData(req.topicName, req.multiId, [req.fieldName]);
+        if (!topicData) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: `找不到 Topic: ${req.topicName}` });
+          return;
+        }
+
+        const timestamps = topicData.timestamps;
+        const values = topicData.fields[req.fieldName];
+        if (!values) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: `在 Topic ${req.topicName} 中找不到欄位: ${req.fieldName}` });
+          return;
+        }
+
+        // 根據時間範圍 Slice
+        const [startIdx, endIdx] = sliceByTimeRange(timestamps, req.timeStartUs, req.timeEndUs);
+        const subTimestamps = timestamps.subarray(startIdx, endIdx);
+        const subValues = values.subarray(startIdx, endIdx);
+
+        if (subValues.length < 8) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '所選時間區間內的數據點數不足，無法計算 FFT。' });
+          return;
+        }
+
+        // 計算採樣頻率
+        const n = subTimestamps.length;
+        const dtSec = (subTimestamps[n - 1] - subTimestamps[0]) / (n - 1) / 1e6;
+        const fs = 1.0 / dtSec;
+
+        const { frequencies, amplitudes } = computeFFTAmplitude(
+          subValues instanceof Float32Array ? subValues : new Float32Array(subValues),
+          fs
+        );
+
+        const resp: WorkerResponse = {
+          type: 'FFT_COMPLETE',
+          requestId: req.requestId,
+          topicName: req.topicName,
+          fieldName: req.fieldName,
+          frequencies,
+          amplitudes
+        };
+
+        // Zero-copy transfer
+        (self as unknown as Worker).postMessage(resp, [frequencies.buffer as ArrayBuffer, amplitudes.buffer as ArrayBuffer]);
+      } catch (err) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
+      }
+      break;
+    }
+
+    case 'ALIGN_PID_DATA': {
+      if (!parser) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '尚未解析 any ULog 檔案。' });
+        return;
+      }
+      try {
+        const setpointData = parser.getTopicData(req.setpointTopic, 0, [req.setpointField]);
+        const actualData = parser.getTopicData(req.actualTopic, 0, [req.actualField]);
+
+        if (!setpointData || !actualData) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: `找不到 PID Topic: ${!setpointData ? req.setpointTopic : req.actualTopic}` });
+          return;
+        }
+
+        const ySetRaw = setpointData.fields[req.setpointField];
+        const yActRaw = actualData.fields[req.actualField];
+
+        if (!ySetRaw || !yActRaw) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: `在 PID Topic 中找不到對應欄位` });
+          return;
+        }
+
+        // 1. 先對 actual 數據做時間範圍 Slice（以實測實際值為基準時間軸）
+        const [startIdxAct, endIdxAct] = sliceByTimeRange(actualData.timestamps, req.timeStartUs, req.timeEndUs);
+        const tRef = actualData.timestamps.subarray(startIdxAct, endIdxAct);
+        const yAct = yActRaw.subarray(startIdxAct, endIdxAct) instanceof Float32Array 
+          ? (yActRaw.subarray(startIdxAct, endIdxAct) as Float32Array)
+          : new Float32Array(yActRaw.subarray(startIdxAct, endIdxAct));
+
+        if (tRef.length < 5) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '所選時間區間內數據點過少，無法對齊 PID' });
+          return;
+        }
+
+        // 2. 對 setpoint 進行對齊與延遲偵測
+        // 第一遍：將 setpoint 線性插值到基準時間軸 tRef
+        const ySetAligned = interpolateSeries(setpointData.timestamps, ySetRaw, tRef);
+
+        // 偵測相位滯後
+        const lagUs = detectLagUs(yAct, ySetAligned, tRef);
+
+        // 第二遍：根據滯後平移時間戳，重新插值對齊 setpoint 達到相位補償
+        let ySetFinal = ySetAligned;
+        if (Math.abs(lagUs) > 0) {
+          const tShifted = new Float64Array(setpointData.timestamps.length);
+          for (let i = 0; i < setpointData.timestamps.length; i++) {
+            tShifted[i] = setpointData.timestamps[i] - lagUs;
+          }
+          ySetFinal = interpolateSeries(tShifted, ySetRaw, tRef);
+        }
+
+        // 3. 計算 PID 指標
+        const rmse = computeRMSE(yAct, ySetFinal);
+        const corr = computeCorrelation(yAct, ySetFinal);
+
+        const resp: WorkerResponse = {
+          type: 'PID_DATA_ALIGNED',
+          requestId: req.requestId,
+          timestamps: tRef,
+          setpointAligned: ySetFinal,
+          actualAligned: yAct,
+          rmse,
+          corr,
+          lagUs
+        };
+
+        // Zero-copy transfer
+        (self as unknown as Worker).postMessage(resp, [
+          tRef.buffer as ArrayBuffer,
+          ySetFinal.buffer as ArrayBuffer,
+          yAct.buffer as ArrayBuffer
+        ]);
+      } catch (err) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
+      }
+      break;
+    }
+
+    case 'RUN_CUSTOM_CALC': {
+      if (!parser) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '尚未解析 any ULog 檔案。' });
+        return;
+      }
+      try {
+        const getRawData = (tName: string) => {
+          // 預設尋找 multiId 0
+          const topicInfo = parser!.getTopicData(tName, 0);
+          if (!topicInfo) return null;
+          return {
+            timestamps: topicInfo.timestamps,
+            fields: topicInfo.fields as Record<string, Float32Array>
+          };
+        };
+
+        const result = executeCustomCalculation(req.config, getRawData);
+
+        const resp: WorkerResponse = {
+          type: 'CUSTOM_CALC_COMPLETE',
+          requestId: req.requestId,
+          outputId: req.config.id,
+          timestamps: result.timestamps,
+          values: result.values
+        };
+
+        // Zero-copy transfer
+        (self as unknown as Worker).postMessage(resp, [
+          result.timestamps.buffer as ArrayBuffer,
+          result.values.buffer as ArrayBuffer
+        ]);
+      } catch (err) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
       }
       break;
     }

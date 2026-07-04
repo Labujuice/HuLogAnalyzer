@@ -87,14 +87,21 @@ export interface ULogSummary {
 
 export type WorkerRequest =
   | { type: 'PARSE_FILE'; buffer: ArrayBuffer }
-  | { type: 'GET_TOPIC_DATA'; topicName: string; multiId: number; fields: string[] };
+  | { type: 'GET_TOPIC_DATA'; topicName: string; multiId: number; fields: string[] }
+  | { type: 'COMPUTE_FFT'; requestId: string; topicName: string; multiId: number; fieldName: string; timeStartUs: number; timeEndUs: number }
+  | { type: 'ALIGN_PID_DATA'; requestId: string; setpointTopic: string; setpointField: string; actualTopic: string; actualField: string; timeStartUs: number; timeEndUs: number }
+  | { type: 'RUN_CUSTOM_CALC'; requestId: string; config: any };
 
 export type WorkerResponse =
   | { type: 'PARSE_PROGRESS'; progress: number; stage: string }
   | { type: 'PARSE_COMPLETE'; summary: ULogSummary }
   | { type: 'PARSE_ERROR'; message: string }
   | { type: 'TOPIC_DATA'; topicName: string; multiId: number; data: TopicTransferData }
-  | { type: 'TOPIC_ERROR'; topicName: string; message: string };
+  | { type: 'TOPIC_ERROR'; topicName: string; message: string }
+  | { type: 'FFT_COMPLETE'; requestId: string; topicName: string; fieldName: string; frequencies: Float64Array; amplitudes: Float32Array }
+  | { type: 'PID_DATA_ALIGNED'; requestId: string; timestamps: Float64Array; setpointAligned: Float32Array; actualAligned: Float32Array; rmse: number; corr: number; lagUs: number }
+  | { type: 'CUSTOM_CALC_COMPLETE'; requestId: string; outputId: string; timestamps: Float64Array; values: Float32Array }
+  | { type: 'CALC_ERROR'; requestId: string; message: string };
 
 /** Zero-copy 傳輸的 Topic 數據包 */
 export interface TopicTransferData {
@@ -107,7 +114,19 @@ export interface TopicTransferData {
 // 儀表板佈局型別
 // ============================================================
 
-export type PanelType = 'chart' | 'attitude3d' | 'ahrs' | 'metadata' | 'messages' | 'empty' | 'map';
+export type PanelType = 
+  | 'chart' 
+  | 'attitude3d' 
+  | 'ahrs' 
+  | 'metadata' 
+  | 'messages' 
+  | 'empty' 
+  | 'map'
+  | 'vibration'
+  | 'pid_tracking'
+  | 'motor_balance'
+  | 'magnetic_analysis'
+  | 'status_mode';
 
 export interface ChartSeries {
   topicName: string;

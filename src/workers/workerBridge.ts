@@ -15,10 +15,19 @@ export class ULogWorkerBridge {
     resolve: (data: ULogTopicData) => void;
     reject: (err: Error) => void;
   }>();
+  private pendingCalcResolvers = new Map<string, {
+    resolve: (data: any) => void;
+    reject: (err: Error) => void;
+  }>();
 
   private onProgressCb: ProgressCallback | null = null;
   private parseResolve: ((summary: ULogSummary) => void) | null = null;
   private parseReject: ((err: Error) => void) | null = null;
+  private _requestIdCounter = 0;
+
+  private _getRequestId(): string {
+    return `req_${this._requestIdCounter++}`;
+  }
 
   constructor() {
     this._initWorker();
@@ -76,6 +85,55 @@ export class ULogWorkerBridge {
           }
           break;
         }
+
+        case 'FFT_COMPLETE': {
+          const resolver = this.pendingCalcResolvers.get(resp.requestId);
+          if (resolver) {
+            resolver.resolve({
+              frequencies: resp.frequencies,
+              amplitudes: resp.amplitudes
+            });
+            this.pendingCalcResolvers.delete(resp.requestId);
+          }
+          break;
+        }
+
+        case 'PID_DATA_ALIGNED': {
+          const resolver = this.pendingCalcResolvers.get(resp.requestId);
+          if (resolver) {
+            resolver.resolve({
+              timestamps: resp.timestamps,
+              setpointAligned: resp.setpointAligned,
+              actualAligned: resp.actualAligned,
+              rmse: resp.rmse,
+              corr: resp.corr,
+              lagUs: resp.lagUs
+            });
+            this.pendingCalcResolvers.delete(resp.requestId);
+          }
+          break;
+        }
+
+        case 'CUSTOM_CALC_COMPLETE': {
+          const resolver = this.pendingCalcResolvers.get(resp.requestId);
+          if (resolver) {
+            resolver.resolve({
+              timestamps: resp.timestamps,
+              values: resp.values
+            });
+            this.pendingCalcResolvers.delete(resp.requestId);
+          }
+          break;
+        }
+
+        case 'CALC_ERROR': {
+          const resolver = this.pendingCalcResolvers.get(resp.requestId);
+          if (resolver) {
+            resolver.reject(new Error(resp.message));
+            this.pendingCalcResolvers.delete(resp.requestId);
+          }
+          break;
+        }
       }
     };
 
@@ -116,11 +174,89 @@ export class ULogWorkerBridge {
   }
 
   /**
+   * 請求計算特定 Topic 的特定欄位在指定時間範圍內的 FFT
+   */
+  computeFFT(
+    topicName: string,
+    multiId: number,
+    fieldName: string,
+    timeStartUs: number,
+    timeEndUs: number
+  ): Promise<{ frequencies: Float64Array; amplitudes: Float32Array }> {
+    const requestId = this._getRequestId();
+    return new Promise((resolve, reject) => {
+      this.pendingCalcResolvers.set(requestId, { resolve, reject });
+      const req: WorkerRequest = {
+        type: 'COMPUTE_FFT',
+        requestId,
+        topicName,
+        multiId,
+        fieldName,
+        timeStartUs,
+        timeEndUs,
+      };
+      this.worker!.postMessage(req);
+    });
+  }
+
+  /**
+   * 請求對齊 PID 數據並計算追隨指標與相位延遲
+   */
+  alignPIDData(
+    setpointTopic: string,
+    setpointField: string,
+    actualTopic: string,
+    actualField: string,
+    timeStartUs: number,
+    timeEndUs: number
+  ): Promise<{
+    timestamps: Float64Array;
+    setpointAligned: Float32Array;
+    actualAligned: Float32Array;
+    rmse: number;
+    corr: number;
+    lagUs: number;
+  }> {
+    const requestId = this._getRequestId();
+    return new Promise((resolve, reject) => {
+      this.pendingCalcResolvers.set(requestId, { resolve, reject });
+      const req: WorkerRequest = {
+        type: 'ALIGN_PID_DATA',
+        requestId,
+        setpointTopic,
+        setpointField,
+        actualTopic,
+        actualField,
+        timeStartUs,
+        timeEndUs,
+      };
+      this.worker!.postMessage(req);
+    });
+  }
+
+  /**
+   * 執行客製化的代數/信號運算鏈
+   */
+  runCustomCalc(config: any): Promise<{ timestamps: Float64Array; values: Float32Array }> {
+    const requestId = this._getRequestId();
+    return new Promise((resolve, reject) => {
+      this.pendingCalcResolvers.set(requestId, { resolve, reject });
+      const req: WorkerRequest = {
+        type: 'RUN_CUSTOM_CALC',
+        requestId,
+        config,
+      };
+      this.worker!.postMessage(req);
+    });
+  }
+
+  /**
    * 終止並重建 Worker
    */
   reset() {
     this.worker?.terminate();
     this.pendingTopicResolvers.clear();
+    this.pendingCalcResolvers.clear();
     this.parseResolve = null;
     this.parseReject = null;
     this._initWorker();
