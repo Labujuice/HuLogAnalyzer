@@ -83,3 +83,28 @@
   border-color: rgba(255, 255, 255, 0.25);
   color: var(--clr-text-primary);
 }
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.link {
+  color: var(--clr-text-secondary);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color var(--transition-fast);
+  cursor: pointer;
+}
+
+.link:hover {
+  color: var(--clr-text-primary);
+}
+
+.divider {
+  color: rgba(255, 255, 255, 0.15);
+}

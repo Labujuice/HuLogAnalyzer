@@ -259,3 +259,35 @@
 .select:hover {
   border-color: rgba(255, 255, 255, 0.25);
 }
+
+.footer {
+  margin-top: var(--sp-6);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 0.8rem;
+  color: var(--clr-text-muted);
+}
+
+.footerLink {
+  color: var(--clr-text-secondary);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color var(--transition-fast);
+}
+
+.footerLink:hover {
+  color: var(--clr-text-primary);
+}
+
+.githubIcon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.footerDivider {
+  color: rgba(255, 255, 255, 0.15);
+}
