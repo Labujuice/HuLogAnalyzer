@@ -241,7 +241,27 @@ export function MotorStatusPanel({ panelId, currentTimeUs }: MotorStatusPanelPro
         }
       };
 
-      chartRef.current = new uPlot(opts, uPlotData, containerRef.current);
+      const plot = new uPlot(opts, uPlotData, containerRef.current);
+      plot.over.addEventListener('wheel', (e: WheelEvent) => {
+        e.preventDefault();
+        const minX = plot.scales.x.min!;
+        const maxX = plot.scales.x.max!;
+        const range = maxX - minX;
+        const rect = plot.over.getBoundingClientRect();
+        const mousePct = (e.clientX - rect.left) / rect.width;
+        const mouseVal = minX + mousePct * range;
+        const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+        const newRange = range * zoomFactor;
+        const newMin = mouseVal - mousePct * newRange;
+        const newMax = newMin + newRange;
+        const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+
+        plot.setScale('x', {
+          min: Math.max(0, newMin),
+          max: Math.min(logEnd, newMax),
+        });
+      });
+      chartRef.current = plot;
     }
   }, [getTargetTopicInfo, isReady, state.topicCache, state.playback, state.summary, currentTimeUs, dataType, state.language]);
 

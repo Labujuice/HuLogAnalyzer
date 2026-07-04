@@ -193,7 +193,7 @@ function appReducer(state: AppState, action: Action): AppState {
               direction: spDir,
               panels: [
                 p,
-                { id: newPanelId, type: 'empty', series: [], title: `圖表 ${panelCounter - 1}` },
+                { id: newPanelId, type: 'chart', series: [], title: `圖表 ${panelCounter - 1}` },
               ],
               sizes: [50, 50],
             };
@@ -220,7 +220,7 @@ function appReducer(state: AppState, action: Action): AppState {
           ...state,
           layout: {
             ...state.layout,
-            panels: [{ ...(state.layout.panels[0] as LeafPanel), type: 'empty', series: [] }],
+            panels: [{ ...(state.layout.panels[0] as LeafPanel), type: 'chart', series: [] }],
           },
         };
       }
