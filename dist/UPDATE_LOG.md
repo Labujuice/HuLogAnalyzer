@@ -62,7 +62,3 @@
     * 於專案根目錄新增 MIT 授權條款宣告檔案 [LICENSE](./LICENSE)，與 `README.md` 開源條款聲明呼應。
   * **🎨 拖曳上傳區塊樣式修復 (LandingPage)**：
     * 修正首頁拖曳區的 camelCase 類名大小寫拼寫錯誤（`dropzone` 改為 `dropZone`，`dropzoneActive` 改為 `dragOver`），成功恢復虛線方框、背景微發光與拖曳時放大回饋之精美玻璃態外觀，指引用戶進行拖曳上傳。
-  * **🏷️ 全域 GitHub 連結與版本更新日誌整合 (LandingPage & TopBar & Vite)**：
-    * 於首頁上傳區底部 (LandingPage) 與日誌分析頁頂部狀態列 (TopBar) 同步新增 GitHub 項目鏈結與帶有 Build Date 的版本號 (`v1.1.2_20260704`)。
-    * 版本號設定為可點選連結，並能根據目前的介面語言自動開啟對應的更新日誌檔：英文界面連至 `UPDATE_LOG_EN.md`，中文界面連至 `UPDATE_LOG.md`。
-    * 修改 `vite.config.ts`, 新增 Vite 打包關閉後的 `copy-update-logs` 自訂 hook，在打包時自動將更新日誌複製至 `dist/`，保證離線狀態下雙擊 `dist/index.html` 時，點選版本號仍能成功以相對路徑開啟對應日誌。

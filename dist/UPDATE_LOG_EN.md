@@ -62,7 +62,3 @@ This file is used to document and manage update items prior to every Merge Reque
     * Created the MIT license declaration file [LICENSE](./LICENSE) in the workspace root directory.
   * **🎨 Drag-and-Drop Area Styling Restoration (LandingPage)**:
     * Corrected a camelCase spelling typo for the dropzone container class in the landing page component (`dropzone` -> `dropZone`, `dropzoneActive` -> `dragOver`), successfully restoring the dashed border, glassmorphism glow effect, and hover scale transition properties for the drag-and-drop file upload target.
-  * **🏷️ Global GitHub Link & Version-Changelog Integration (LandingPage & TopBar & Vite)**:
-    * Added a GitHub repository icon link and a version build number tag (`v1.1.2_20260704`) to the footer of the file upload section (`LandingPage`) and the header status bar (`TopBar`).
-    * Configured the version build tag as a clickable link that opens the language-specific changelog file: `UPDATE_LOG_EN.md` for English interface and `UPDATE_LOG.md` for Chinese interface.
-    * Implemented an inline custom Rollup plugin (`copy-update-logs`) in `vite.config.ts` to automatically bundle the changelog markdown files into the `dist/` directory, ensuring offline file links remain fully functional.
