@@ -42,6 +42,12 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
   // 選擇觀測哪一個磁力計的原始三軸數值 (Compass 0, 1...)
   const [activeRawMagIdx, setActiveRawMagIdx] = useState<number>(0);
 
+  // 航向圖表的可見性控制狀態
+  const [showEkf, setShowEkf] = useState(true);
+  const [showGsf, setShowGsf] = useState(true);
+  const [showGps, setShowGps] = useState(true);
+  const [showMags, setShowMags] = useState<Record<number, boolean>>({});
+
   // 1. 本地 uPlot 橫向縮放與游標同步對象
   const magSync = useMemo(() => uPlot.sync('mag-panel-sync'), []);
 
@@ -426,31 +432,40 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
               xsSec[i] = (attCache.timestamps[i] - startLogUs) / 1e6;
             }
 
-            const yCols: any[] = [ekfYaw];
-            const seriesOpts: any[] = [
-              { label: 'Time (s)' },
-              { label: 'EKF Yaw', stroke: '#ef4444', width: 1.5, points: { show: false } }
-            ];
+            const yCols: any[] = [];
+            const seriesOpts: any[] = [{ label: 'Time (s)' }];
 
-            if (hasGsf) {
+            if (showEkf) {
+              yCols.push(ekfYaw);
+              seriesOpts.push({ label: 'EKF Yaw', stroke: '#ef4444', width: 1.5, points: { show: false } });
+            }
+            if (hasGsf && showGsf) {
               yCols.push(gsfYawAligned);
               seriesOpts.push({ label: 'EKF GSF Yaw (IMU/GPS)', stroke: '#10b981', width: 1.5, points: { show: false } });
             }
-            if (hasGps) {
+            if (hasGps && showGps) {
               yCols.push(gpsCogAligned);
               seriesOpts.push({ label: 'GPS COG (地面航向)', stroke: '#3b82f6', width: 1.2, points: { show: false } });
             }
             
             // 繪製所有羅盤實例的純磁力計航向
             magYawsList.forEach(item => {
-              yCols.push(item.data);
-              seriesOpts.push({
-                label: `Mag ${item.idx} Yaw`,
-                stroke: item.idx === 0 ? '#fbbf24' : item.idx === 1 ? '#a78bfa' : '#06b6d4', // 黃、紫、青
-                width: 1.5,
-                points: { show: false }
-              });
+              if (showMags[item.idx] !== false) {
+                yCols.push(item.data);
+                seriesOpts.push({
+                  label: `Mag ${item.idx} Yaw`,
+                  stroke: item.idx === 0 ? '#fbbf24' : item.idx === 1 ? '#a78bfa' : '#06b6d4', // 黃、紫、青
+                  width: 1.5,
+                  points: { show: false }
+                });
+              }
             });
+
+            // 防禦性處理：若所有曲線皆未選取，至少留 EKF Yaw 防止 uPlot 崩潰
+            if (yCols.length === 0) {
+              yCols.push(ekfYaw);
+              seriesOpts.push({ label: 'EKF Yaw', stroke: '#ef4444', width: 1.5, points: { show: false } });
+            }
 
             const uPlotData: uPlot.AlignedData = [xsSec, ...yCols] as uPlot.AlignedData;
             const rect = headingContainerRef.current.getBoundingClientRect();
@@ -491,7 +506,7 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
         }
       }
     }
-  }, [isDataLoaded, magInstances, hasHeading, state.topicCache, state.summary, currentTimeUs, activeRawMagIdx, magSync, registerWheelZoom]);
+  }, [isDataLoaded, magInstances, hasHeading, state.topicCache, state.summary, currentTimeUs, activeRawMagIdx, magSync, registerWheelZoom, showEkf, showGsf, showGps, showMags]);
 
   // 重建圖表
   useEffect(() => {
@@ -587,10 +602,43 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
 
           {/* 多源航向對比 */}
           <div className={styles.card} style={{ flex: 1 }}>
-            <div className={styles.cardHeader}>
+            <div className={styles.cardHeader} style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
               <span className={styles.cardTitle}>
                 🧭 {state.language === 'en' ? 'Multi-Source Heading (Yaw/COG) Comparison' : 'EKF/GSF/GPS 航向角與航跡向同步比對'}
               </span>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={showEkf} onChange={e => setShowEkf(e.target.checked)} style={{ cursor: 'pointer' }} />
+                  <span style={{ color: '#ef4444', fontWeight: 'bold' }}>EKF Yaw</span>
+                </label>
+                {hasHeading && state.topicCache['yaw_estimator_status:0'] && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={showGsf} onChange={e => setShowGsf(e.target.checked)} style={{ cursor: 'pointer' }} />
+                    <span style={{ color: '#10b981', fontWeight: 'bold' }}>GSF Yaw</span>
+                  </label>
+                )}
+                {hasHeading && state.topicCache['sensor_gps:0'] && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={showGps} onChange={e => setShowGps(e.target.checked)} style={{ cursor: 'pointer' }} />
+                    <span style={{ color: '#3b82f6', fontWeight: 'bold' }}>GPS COG</span>
+                  </label>
+                )}
+                {magInstances.map(inst => (
+                  <label key={inst.multiId} style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={showMags[inst.multiId] !== false}
+                      onChange={e => {
+                        setShowMags(prev => ({ ...prev, [inst.multiId]: e.target.checked }));
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <span style={{ color: inst.multiId === 0 ? '#fbbf24' : inst.multiId === 1 ? '#a78bfa' : '#06b6d4', fontWeight: 'bold' }}>
+                      Mag {inst.multiId} Yaw
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
             {!hasHeading ? (
               <div className={styles.emptyHint}>{state.language === 'en' ? 'No attitude data' : '無姿態數據'}</div>
