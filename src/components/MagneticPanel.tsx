@@ -379,6 +379,45 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
             }
           }
 
+          // 計算純磁力計傾角補償航向角 (Pure Magnetometer Tilt-Compensated Yaw)
+          const pureMagYaw = new Float32Array(n);
+          let hasPureMag = false;
+          if (magInstances.length > activeRawMagIdx) {
+            const targetInst = magInstances[activeRawMagIdx];
+            const magCache = state.topicCache[`${targetInst.name}:${targetInst.multiId}`];
+            if (magCache && magCache.count > 0) {
+              const mxRaw = magCache.fields['magnetometer_ga[0]'] || magCache.fields['x'];
+              const myRaw = magCache.fields['magnetometer_ga[1]'] || magCache.fields['y'];
+              const mzRaw = magCache.fields['magnetometer_ga[2]'] || magCache.fields['z'];
+              
+              if (mxRaw && myRaw && mzRaw) {
+                hasPureMag = true;
+                for (let i = 0; i < n; i++) {
+                  const tAtt = attCache.timestamps[i];
+                  const euler = quatToEuler(q0[i], q1[i], q2[i], q3[i]);
+                  const roll = euler[0];
+                  const pitch = euler[1];
+
+                  const hx = interpolateAt(magCache.timestamps, mxRaw as any, tAtt);
+                  const hy = interpolateAt(magCache.timestamps, myRaw as any, tAtt);
+                  const hz = interpolateAt(magCache.timestamps, mzRaw as any, tAtt);
+
+                  const cosR = Math.cos(roll);
+                  const sinR = Math.sin(roll);
+                  const cosP = Math.cos(pitch);
+                  const sinP = Math.sin(pitch);
+
+                  const Xh = hx * cosP + hy * sinP * sinR + hz * sinP * cosR;
+                  const Yh = hy * cosR - hz * sinR;
+                  let yawRad = Math.atan2(-Yh, Xh);
+                  let yawDeg = (yawRad * 180) / Math.PI;
+                  if (yawDeg < 0) yawDeg += 360;
+                  pureMagYaw[i] = yawDeg;
+                }
+              }
+            }
+          }
+
           if (headingContainerRef.current) {
             headingChartRef.current?.destroy();
             headingChartRef.current = null;
@@ -401,6 +440,15 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
             if (hasGps) {
               yCols.push(gpsCogAligned);
               seriesOpts.push({ label: 'GPS COG (地面航向)', stroke: '#3b82f6', width: 1.2, points: { show: false } });
+            }
+            if (hasPureMag) {
+              yCols.push(pureMagYaw);
+              seriesOpts.push({
+                label: `Mag Yaw (Compass ${magInstances[activeRawMagIdx]?.multiId ?? 0})`,
+                stroke: '#eab308',
+                width: 1.5,
+                points: { show: false }
+              });
             }
 
             const uPlotData: uPlot.AlignedData = [xsSec, ...yCols] as uPlot.AlignedData;
