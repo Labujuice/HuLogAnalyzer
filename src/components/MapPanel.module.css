@@ -70,6 +70,14 @@
   border: 1px solid rgba(6, 182, 212, 0.3);
 }
 
+.divider {
+  color: rgba(255, 255, 255, 0.15);
+  font-size: 11px;
+  align-self: center;
+  margin: 0 var(--sp-1);
+  pointer-events: none;
+}
+
 /* ─── Custom Drone Marker ─── */
 .droneMarkerWrap {
   width: 30px;
@@ -82,12 +90,12 @@
 
 /* Red arrow pointing forward */
 .droneMarkerArrow {
-  width: 0;
-  height: 0;
-  border-left: 7px solid transparent;
-  border-right: 7px solid transparent;
-  border-bottom: 18px solid #ef4444; /* Red color */
-  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.8));
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
   z-index: 10;
   transition: transform 0.1s linear; /* Smooth heading transitions */
 }

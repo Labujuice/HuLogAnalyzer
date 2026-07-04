@@ -46,3 +46,79 @@
   font-family: var(--font-sans);
   background: var(--clr-bg-surface);
 }
+
+.controlOverlay {
+  position: absolute;
+  bottom: var(--sp-3);
+  right: var(--sp-3);
+  z-index: 10;
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.overlayBtn {
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--clr-text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all var(--transition-fast);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.overlayBtn:hover {
+  color: var(--clr-text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.overlayBtnActive {
+  color: var(--clr-text-accent);
+  background: rgba(6, 182, 212, 0.15);
+  border-color: rgba(6, 182, 212, 0.4);
+}
+
+.modelSelectGroup {
+  background: rgba(15, 23, 42, 0.75);
+  color: var(--clr-text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 5px var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.selectLabel {
+  color: var(--clr-text-muted);
+}
+
+.modelSelect {
+  background: #0f172a;
+  color: var(--clr-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.modelSelect:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+}

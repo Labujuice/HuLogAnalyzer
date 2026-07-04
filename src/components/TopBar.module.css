@@ -64,3 +64,22 @@
   display: flex;
   gap: var(--sp-2);
 }
+
+.langSelect {
+  background: #0f172a;
+  color: var(--clr-text-secondary);
+  border: 1px solid var(--clr-border);
+  padding: 4px var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.langSelect:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--clr-text-primary);
+}

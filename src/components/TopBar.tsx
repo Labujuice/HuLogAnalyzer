@@ -5,7 +5,7 @@ import styles from './TopBar.module.css';
 
 export function TopBar() {
   const { state, dispatch } = useApp();
-  const { summary } = state;
+  const { summary, language } = state;
 
   return (
     <header className={styles.root}>
@@ -29,37 +29,56 @@ export function TopBar() {
         {summary && (
           <div className={styles.fileInfo}>
             <span className={styles.separator}>|</span>
-            <span className={styles.hw} title="硬體版本">{summary.metadata.hardwareVersion}</span>
+            <span className={styles.hw} title={language === 'en' ? 'Hardware Version' : '硬體版本'}>
+              {summary.metadata.hardwareVersion}
+            </span>
             <span className={styles.separator}>·</span>
-            <span className={styles.fw} title="韌體版本">{summary.metadata.softwareVersion}</span>
+            <span className={styles.fw} title={language === 'en' ? 'Firmware Version' : '韌體版本'}>
+              {summary.metadata.softwareVersion}
+            </span>
             <span className={styles.separator}>·</span>
-            <span className={styles.dur} title="飛行時長">
+            <span className={styles.dur} title={language === 'en' ? 'Flight Duration' : '飛行時長'}>
               ⏱ {formatDuration(summary.durationUs)}
             </span>
           </div>
         )}
       </div>
 
-      {/* 右側：操作按鈕 */}
+      {/* 右側：語言切換 + 操作按鈕 */}
       <div className={styles.right}>
         {summary && (
-          <>
-            <div className={styles.topicCount}>
-              <span className="badge badge--blue">{summary.topics.length} Topics</span>
-              <span className="badge badge--gray">{summary.messages.length} Msgs</span>
-            </div>
-            <button
-              className="btn btn--ghost"
-              onClick={() => dispatch({ type: 'RESET' })}
-              title="載入新檔案"
-              id="btn-load-new"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
-              </svg>
-              載入新檔案
-            </button>
-          </>
+          <div className={styles.topicCount}>
+            <span className="badge badge--blue">
+              {summary.topics.length} {language === 'en' ? 'Topics' : '主題'}
+            </span>
+            <span className="badge badge--gray">
+              {summary.messages.length} {language === 'en' ? 'Msgs' : '日誌'}
+            </span>
+          </div>
+        )}
+
+        <select
+          value={language}
+          onChange={(e) => dispatch({ type: 'SET_LANGUAGE', language: e.target.value as any })}
+          className={styles.langSelect}
+          title={language === 'en' ? 'Select Language' : '選擇語言'}
+        >
+          <option value="en">English</option>
+          <option value="zh">繁體中文</option>
+        </select>
+
+        {summary && (
+          <button
+            className="btn btn--ghost"
+            onClick={() => dispatch({ type: 'RESET' })}
+            title={language === 'en' ? 'Load new file' : '載入新檔案'}
+            id="btn-load-new"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+            </svg>
+            {language === 'en' ? 'Load File' : '載入新檔案'}
+          </button>
         )}
       </div>
     </header>

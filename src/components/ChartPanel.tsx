@@ -474,7 +474,9 @@ export function ChartPanel({
         <div className={styles.seriesList}>
           {panel.type === 'chart' ? (
             !hasSeries ? (
-              <span className={styles.emptyHint}>從左側拖曳欄位至此繪圖</span>
+              <span className={styles.emptyHint}>
+                {state.language === 'en' ? 'Drag fields from sidebar to plot' : '從左側拖曳欄位至此繪圖'}
+              </span>
             ) : (
               panel.series.map((s, i) => (
                 <div
@@ -489,14 +491,18 @@ export function ChartPanel({
                   <button
                     className={styles.seriesRemove}
                     onClick={() => onRemoveSeries?.(i)}
-                    title="移除此數據"
+                    title={state.language === 'en' ? 'Remove this series' : '移除此數據'}
                   >×</button>
                 </div>
               ))
             )
           ) : (
             <span className={styles.activePanelLabel}>
-              {panel.type === 'attitude3d' ? '🛸 3D 姿態觀測器' : panel.type === 'ahrs' ? '✈️ AHRS 航空儀表' : '🗺️ 2D 地圖軌跡'}
+              {panel.type === 'attitude3d' 
+                ? (state.language === 'en' ? '🛸 3D Attitude Viewer' : '🛸 3D 姿態觀測器') 
+                : panel.type === 'ahrs' 
+                  ? (state.language === 'en' ? '✈️ AHRS PFD HUD' : '✈️ AHRS 航空儀表') 
+                  : (state.language === 'en' ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡')}
             </span>
           )}
         </div>
@@ -509,30 +515,30 @@ export function ChartPanel({
               <button
                 className={`${styles.viewBtn} ${panel.type === 'chart' ? styles.viewBtnActive : ''}`}
                 onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
-                title="數據圖表"
+                title={state.language === 'en' ? 'Data Chart' : '數據圖表'}
               >
-                圖表
+                {state.language === 'en' ? 'Chart' : '圖表'}
               </button>
               <button
                 className={`${styles.viewBtn} ${panel.type === 'attitude3d' ? styles.viewBtnActive : ''}`}
                 onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'attitude3d' })}
-                title="3D 姿態"
+                title={state.language === 'en' ? '3D Attitude' : '3D 姿態'}
               >
                 3D
               </button>
               <button
                 className={`${styles.viewBtn} ${panel.type === 'ahrs' ? styles.viewBtnActive : ''}`}
                 onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'ahrs' })}
-                title="航空儀表"
+                title={state.language === 'en' ? 'Aviation HUD' : '航空儀表'}
               >
-                儀表
+                {state.language === 'en' ? 'HUD' : '儀表'}
               </button>
               <button
                 className={`${styles.viewBtn} ${panel.type === 'map' ? styles.viewBtnActive : ''}`}
                 onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'map' })}
-                title="2D 地圖軌跡"
+                title={state.language === 'en' ? '2D GIS Map' : '2D 地圖軌跡'}
               >
-                地圖
+                {state.language === 'en' ? 'Map' : '地圖'}
               </button>
             </div>
           )}
@@ -542,8 +548,8 @@ export function ChartPanel({
           <button
             className="btn btn--icon btn--ghost"
             onClick={onSplitHoriz}
-            title="左右分割"
-            data-tooltip="左右分割"
+            title={state.language === 'en' ? 'Split Horizontally' : '左右分割'}
+            data-tooltip={state.language === 'en' ? 'Split Horiz' : '左右分割'}
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
               <rect x="0" y="0" width="5.5" height="13" rx="1.5" opacity="0.6"/>
@@ -553,8 +559,8 @@ export function ChartPanel({
           <button
             className="btn btn--icon btn--ghost"
             onClick={onSplitVert}
-            title="上下分割"
-            data-tooltip="上下分割"
+            title={state.language === 'en' ? 'Split Vertically' : '上下分割'}
+            data-tooltip={state.language === 'en' ? 'Split Vert' : '上下分割'}
           >
             <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
               <rect x="0" y="0" width="13" height="5.5" rx="1.5" opacity="0.6"/>
@@ -565,8 +571,8 @@ export function ChartPanel({
           <button
             className={`btn btn--icon btn--ghost ${styles.removeBtn}`}
             onClick={onRemovePanel}
-            title="移除此畫框"
-            data-tooltip="移除畫框"
+            title={state.language === 'en' ? 'Remove panel frame' : '移除此畫框'}
+            data-tooltip={state.language === 'en' ? 'Remove Panel' : '移除畫框'}
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M18 6L6 18M6 6l12 12"/>
@@ -603,31 +609,33 @@ export function ChartPanel({
 
       {panel.type === 'empty' && (
         <div className={styles.emptyChoice}>
-          <div className={styles.choiceTitle}>選擇此區塊顯示的內容</div>
+          <div className={styles.choiceTitle}>
+            {state.language === 'en' ? 'Select panel display content' : '選擇此區塊顯示的內容'}
+          </div>
           <div className={styles.choiceButtons}>
             <button
               className="btn btn--primary"
               onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
             >
-              📊 數據圖表
+              {state.language === 'en' ? '📊 Data Chart' : '📊 數據圖表'}
             </button>
             <button
               className="btn btn--primary"
               onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'attitude3d' })}
             >
-              🛸 3D 姿態觀測器
+              {state.language === 'en' ? '🛸 3D Attitude Viewer' : '🛸 3D 姿態觀測器'}
             </button>
             <button
               className="btn btn--primary"
               onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'ahrs' })}
             >
-              ✈️ AHRS 航空水平儀
+              {state.language === 'en' ? '✈️ AHRS PFD HUD' : '✈️ AHRS 航空水平儀'}
             </button>
             <button
               className="btn btn--primary"
               onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'map' })}
             >
-              🗺️ 2D 地圖軌跡
+              {state.language === 'en' ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡'}
             </button>
           </div>
         </div>

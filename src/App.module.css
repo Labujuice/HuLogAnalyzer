@@ -64,3 +64,20 @@
   line-height: 1.6;
   font-family: var(--font-mono);
 }
+
+.resizeHandle {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  flex-shrink: 0;
+  z-index: 10;
+  border-left: 1px solid var(--clr-border);
+  margin-left: -1px;
+}
+
+.resizeHandle:hover,
+.resizeHandle:active {
+  background: var(--clr-accent);
+  box-shadow: 0 0 8px var(--clr-accent);
+}
