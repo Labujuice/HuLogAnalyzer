@@ -32,6 +32,15 @@ const MODE_COLORS: Record<number, string> = {
   10: 'rgba(217, 70, 239, 0.15)', // AUTO_LAND
 };
 
+// 顏色調色盤，供多通道 RC 顯示
+const MULTI_CHANNEL_COLORS = [
+  '#ef4444', '#10b981', '#fb923c', '#3b82f6',
+  '#a78bfa', '#f43f5e', '#06b6d4', '#eab308',
+  '#ec4899', '#14b8a6', '#6366f1', '#f97316'
+];
+
+type StickTab = 'setpoint' | 'rc_channels' | 'input_rc';
+
 export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps) {
   const { state, requestTopicData } = useApp();
   
@@ -44,9 +53,13 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
   const failsafeChartRef = useRef<uPlot | null>(null);
 
   const [isDataLoaded, setIsDataLoaded] = useState(false);
-  const [hasSticks, setHasSticks] = useState(false);
-  const [stickTopicName, setStickTopicName] = useState<string>('manual_control_setpoint');
+  const [activeTab, setActiveTab] = useState<StickTab>('setpoint');
   
+  // 檢查各項數據是否存在於 ULog 中
+  const [hasSetpoint, setHasSetpoint] = useState(false);
+  const [hasRcChannels, setHasRcChannels] = useState(false);
+  const [hasInputRc, setHasInputRc] = useState(false);
+
   // 模式轉移與解鎖狀態
   const [transitions, setTransitions] = useState<ModeTransition[]>([]);
   const [currentModeStr, setCurrentModeStr] = useState<string>('UNKNOWN');
@@ -56,23 +69,30 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
   const [hasFailsafe, setHasFailsafe] = useState<boolean>(false);
   const [failsafeLogs, setFailsafeLogs] = useState<{ timeS: number; msg: string }[]>([]);
 
-  // 1. 自動檢查實際存在的 Topic 與 Fields，避免請求不存在的欄位導致快取掛起 (Stall)
+  // 1. 自動檢查實際存在的 Topic 與 Fields，平行加載全部可用的遙控/控制數據
   useEffect(() => {
     if (!state.summary) return;
     const topics = state.summary.topics;
 
-    // 優先尋找 manual_control_setpoint -> rc_channels -> input_rc
-    const stickTopic = topics.find(t => t.name === 'manual_control_setpoint') 
-      || topics.find(t => t.name === 'rc_channels')
-      || topics.find(t => t.name === 'input_rc');
-    
+    const spExist = topics.some(t => t.name === 'manual_control_setpoint');
+    const rcChExist = topics.some(t => t.name === 'rc_channels');
+    const inputRcExist = topics.some(t => t.name === 'input_rc');
+
+    setHasSetpoint(spExist);
+    setHasRcChannels(rcChExist);
+    setHasInputRc(inputRcExist);
+
+    // 決定預設的 Tab
+    if (spExist) {
+      setActiveTab('setpoint');
+    } else if (rcChExist) {
+      setActiveTab('rc_channels');
+    } else if (inputRcExist) {
+      setActiveTab('input_rc');
+    }
+
     const statusTopic = topics.find(t => t.name === 'vehicle_status');
     if (!statusTopic) return;
-
-    setHasSticks(!!stickTopic);
-    if (stickTopic) {
-      setStickTopicName(stickTopic.name);
-    }
 
     // 過濾真正存在的 status 欄位
     const statusFields = ['nav_state', 'arming_state', 'failsafe', 'rc_signal_lost']
@@ -82,18 +102,17 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
       { name: 'vehicle_status', fields: statusFields }
     ];
 
-    if (stickTopic) {
-      let desiredSticks: string[] = [];
-      if (stickTopic.name === 'manual_control_setpoint') {
-        desiredSticks = ['x', 'y', 'z', 'r'];
-      } else if (stickTopic.name === 'rc_channels') {
-        desiredSticks = ['channels[0]', 'channels[1]', 'channels[2]', 'channels[3]'];
-      } else {
-        desiredSticks = ['values[0]', 'values[1]', 'values[2]', 'values[3]'];
-      }
-      const stickFields = desiredSticks.filter(f => stickTopic.fields.includes(f));
-      
-      needed.push({ name: stickTopic.name, fields: stickFields });
+    if (spExist) {
+      const t = topics.find(tp => tp.name === 'manual_control_setpoint')!;
+      needed.push({ name: t.name, fields: t.fields.filter(f => ['x', 'y', 'z', 'r'].includes(f)) });
+    }
+    if (rcChExist) {
+      const t = topics.find(tp => tp.name === 'rc_channels')!;
+      needed.push({ name: t.name, fields: t.fields.filter(f => f.startsWith('channels[')) });
+    }
+    if (inputRcExist) {
+      const t = topics.find(tp => tp.name === 'input_rc')!;
+      needed.push({ name: t.name, fields: t.fields.filter(f => f.startsWith('values[')) });
     }
 
     let loaded = true;
@@ -215,93 +234,115 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     if (!state.summary || !isDataLoaded) return;
     const startLogUs = state.summary.startTimestampUs;
 
-    // ─── A. 搖桿操縱桿 / RC 訊號折線圖 ───
-    if (hasSticks) {
-      const stickCache = state.topicCache[`${stickTopicName}:0`];
+    // ─── A. 搖桿操縱桿 / RC 訊號折線圖 (根據 Tab 切換) ───
+    let currentCacheKey = '';
+    if (activeTab === 'setpoint' && hasSetpoint) currentCacheKey = 'manual_control_setpoint:0';
+    else if (activeTab === 'rc_channels' && hasRcChannels) currentCacheKey = 'rc_channels:0';
+    else if (activeTab === 'input_rc' && hasInputRc) currentCacheKey = 'input_rc:0';
+
+    if (currentCacheKey) {
+      const stickCache = state.topicCache[currentCacheKey];
       if (stickCache && stickCache.count > 0 && stickContainerRef.current) {
-        let sx: any = null;
-        let sy: any = null;
-        let sz: any = null;
-        let sr: any = null;
+        stickChartRef.current?.destroy();
+        stickChartRef.current = null;
 
-        const isRawRc = stickTopicName === 'rc_channels';
-        const isInputRc = stickTopicName === 'input_rc';
-
-        if (isRawRc) {
-          const c0 = stickCache.fields['channels[0]']; // Roll
-          const c1 = stickCache.fields['channels[1]']; // Pitch
-          const c2 = stickCache.fields['channels[2]']; // Throttle
-          const c3 = stickCache.fields['channels[3]']; // Yaw
-
-          if (c0 && c1 && c2 && c3) {
-            const normalize = (arr: any) => {
-              const res = new Float32Array(arr.length);
-              const isRaw = arr[0] > 500;
-              for (let i = 0; i < arr.length; i++) {
-                res[i] = isRaw ? (arr[i] - 1500) / 500 : arr[i];
-              }
-              return res;
-            };
-            sx = normalize(c1); // Pitch
-            sy = normalize(c0); // Roll
-            sz = normalize(c2); // Throttle
-            sr = normalize(c3); // Yaw
-          }
-        } else if (isInputRc) {
-          const c0 = stickCache.fields['values[0]']; // Roll
-          const c1 = stickCache.fields['values[1]']; // Pitch
-          const c2 = stickCache.fields['values[2]']; // Throttle
-          const c3 = stickCache.fields['values[3]']; // Yaw
-
-          if (c0 && c1 && c2 && c3) {
-            const normalize = (arr: any) => {
-              const res = new Float32Array(arr.length);
-              const isRaw = arr[0] > 500;
-              for (let i = 0; i < arr.length; i++) {
-                res[i] = isRaw ? (arr[i] - 1500) / 500 : arr[i];
-              }
-              return res;
-            };
-            sx = normalize(c1); // Pitch
-            sy = normalize(c0); // Roll
-            sz = normalize(c2); // Throttle
-            sr = normalize(c3); // Yaw
-          }
-        } else {
-          sx = stickCache.fields['x']; // Pitch
-          sy = stickCache.fields['y']; // Roll
-          sz = stickCache.fields['z']; // Throttle
-          sr = stickCache.fields['r']; // Yaw
+        const n = stickCache.count;
+        const xsSec = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+          xsSec[i] = (stickCache.timestamps[i] - startLogUs) / 1e6;
         }
 
-        if (sx && sy && sz && sr) {
-          stickChartRef.current?.destroy();
-          stickChartRef.current = null;
+        const dataCols: any[] = [];
+        const seriesOpts: any[] = [{ label: 'Time (s)' }];
+        let yMin = -1.1;
+        let yMax = 1.1;
 
-          const n = stickCache.count;
-          const xsSec = new Float64Array(n);
-          for (let i = 0; i < n; i++) {
-            xsSec[i] = (stickCache.timestamps[i] - startLogUs) / 1e6;
+        if (activeTab === 'setpoint') {
+          const sx = stickCache.fields['x']; // Pitch
+          const sy = stickCache.fields['y']; // Roll
+          const sz = stickCache.fields['z']; // Throttle
+          const sr = stickCache.fields['r']; // Yaw
+          if (sx && sy && sz && sr) {
+            dataCols.push(sx, sy, sz, sr);
+            seriesOpts.push(
+              { label: 'Pitch (x)', stroke: '#ef4444', width: 1.2, points: { show: false } },
+              { label: 'Roll (y)', stroke: '#10b981', width: 1.2, points: { show: false } },
+              { label: 'Throttle (z)', stroke: '#fb923c', width: 1.2, points: { show: false } },
+              { label: 'Yaw (r)', stroke: '#3b82f6', width: 1.2, points: { show: false } }
+            );
           }
+        } else if (activeTab === 'rc_channels') {
+          const channelFields = Object.keys(stickCache.fields)
+            .filter(k => k.startsWith('channels['))
+            .sort((a,b) => {
+              const idxA = parseInt(a.match(/\d+/)![0]);
+              const idxB = parseInt(b.match(/\d+/)![0]);
+              return idxA - idxB;
+            });
+          
+          if (channelFields.length > 0) {
+            const isRaw = stickCache.fields[channelFields[0]][0] > 500;
+            channelFields.forEach((f, idx) => {
+              const arr = stickCache.fields[f];
+              const norm = new Float32Array(n);
+              for (let i = 0; i < n; i++) {
+                norm[i] = isRaw ? (arr[i] - 1500) / 500 : arr[i];
+              }
+              dataCols.push(norm);
+              seriesOpts.push({
+                label: `CH ${idx + 1}`,
+                stroke: MULTI_CHANNEL_COLORS[idx % MULTI_CHANNEL_COLORS.length],
+                width: 1.2,
+                points: { show: false }
+              });
+            });
+          }
+        } else if (activeTab === 'input_rc') {
+          // input_rc:0 繪製全部的 raw value (e.g. values[0..15])
+          const valueFields = Object.keys(stickCache.fields)
+            .filter(k => k.startsWith('values['))
+            .sort((a,b) => {
+              const idxA = parseInt(a.match(/\d+/)![0]);
+              const idxB = parseInt(b.match(/\d+/)![0]);
+              return idxA - idxB;
+            });
+          
+          if (valueFields.length > 0) {
+            // raw PWM 通常落在 800 ~ 2200 之間，我們直接以數值繪製
+            yMin = 850;
+            yMax = 2150;
+            valueFields.forEach((f, idx) => {
+              const arr = stickCache.fields[f];
+              const vals = arr instanceof Float32Array ? arr : new Float32Array(arr);
+              dataCols.push(vals);
+              seriesOpts.push({
+                label: `RC CH ${idx + 1}`,
+                stroke: MULTI_CHANNEL_COLORS[idx % MULTI_CHANNEL_COLORS.length],
+                width: 1.2,
+                points: { show: false }
+              });
+            });
+          }
+        }
 
-          const uPlotData: uPlot.AlignedData = [xsSec, sx, sy, sz, sr];
+        if (dataCols.length > 0) {
+          const uPlotData: uPlot.AlignedData = [xsSec, ...dataCols] as uPlot.AlignedData;
           const rect = stickContainerRef.current.getBoundingClientRect();
 
           const opts: uPlot.Options = {
             width: Math.max(100, Math.floor(rect.width)),
             height: Math.max(80, Math.floor(rect.height)),
-            scales: { x: { time: false }, y: { min: -1.1, max: 1.1 } },
+            scales: { x: { time: false }, y: { min: yMin, max: yMax } },
             axes: [
               { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
-              { label: 'Stick Inputs', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3 }
+              {
+                label: activeTab === 'input_rc' ? 'PWM (us)' : 'Normalized [-1, 1]',
+                stroke: '#64748b',
+                font: '10px JetBrains Mono, monospace',
+                side: 3
+              }
             ],
-            series: [
-              { label: 'Time (s)' },
-              { label: 'Pitch', stroke: '#ef4444', width: 1.2, points: { show: false } },
-              { label: 'Roll', stroke: '#10b981', width: 1.2, points: { show: false } },
-              { label: 'Throttle', stroke: '#fb923c', width: 1.2, points: { show: false } },
-              { label: 'Yaw', stroke: '#3b82f6', width: 1.2, points: { show: false } }
-            ],
+            series: seriesOpts,
             hooks: {
               drawAxes: [
                 (u: uPlot) => {
@@ -483,7 +524,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
         failsafeChartRef.current = new uPlot(opts, uPlotData, failsafeContainerRef.current);
       }
     }
-  }, [isDataLoaded, hasSticks, stickTopicName, state.topicCache, state.summary, transitions, currentTimeUs]);
+  }, [isDataLoaded, activeTab, hasSetpoint, hasRcChannels, hasInputRc, state.topicCache, state.summary, transitions, currentTimeUs]);
 
   useEffect(() => {
     renderCharts();
@@ -520,6 +561,8 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     return () => ro.disconnect();
   }, []);
 
+  const hasData = hasSetpoint || hasRcChannels || hasInputRc;
+
   return (
     <div className={styles.root}>
       {/* 頂部 HUD 控制板，顯示當前播放點狀態 */}
@@ -545,15 +588,41 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
       <div className={styles.container}>
         {/* 左側時序圖 */}
         <div className={styles.chartColumn}>
-          {/* 操縱桿輸入 */}
+          {/* 操縱桿輸入 (包含 Tab 切換) */}
           <div className={styles.card}>
-            <div className={styles.cardHeader}>
+            <div className={styles.cardHeader} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className={styles.cardTitle}>
-                🎮 {state.language === 'en' ? 'Pilot Intervention (Stick Inputs)' : `遙控器操縱桿輸入 (${stickTopicName})`}
+                🎮 {state.language === 'en' ? 'Pilot Stick / RC inputs' : '遙控搖桿與 RC 輸入信號'}
               </span>
+              
+              {/* 搖桿信號切換 Tabs */}
+              <div className={styles.stickTabs}>
+                <button
+                  className={`${styles.stickTabBtn} ${activeTab === 'setpoint' ? styles.stickTabBtnActive : ''} ${!hasSetpoint ? styles.stickTabBtnDisabled : ''}`}
+                  disabled={!hasSetpoint}
+                  onClick={() => setActiveTab('setpoint')}
+                >
+                  Setpoint (期望值)
+                </button>
+                <button
+                  className={`${styles.stickTabBtn} ${activeTab === 'rc_channels' ? styles.stickTabBtnActive : ''} ${!hasRcChannels ? styles.stickTabBtnDisabled : ''}`}
+                  disabled={!hasRcChannels}
+                  onClick={() => setActiveTab('rc_channels')}
+                >
+                  RC Channels (歸一化)
+                </button>
+                <button
+                  className={`${styles.stickTabBtn} ${activeTab === 'input_rc' ? styles.stickTabBtnActive : ''} ${!hasInputRc ? styles.stickTabBtnDisabled : ''}`}
+                  disabled={!hasInputRc}
+                  onClick={() => setActiveTab('input_rc')}
+                >
+                  Raw RC (PWM us)
+                </button>
+              </div>
             </div>
-            {!hasSticks ? (
-              <div className={styles.emptyHint}>{state.language === 'en' ? 'No manual stick inputs found' : '日誌中無遙控器搖桿數據'}</div>
+            
+            {!hasData ? (
+              <div className={styles.emptyHint}>{state.language === 'en' ? 'No stick or RC data found' : '日誌中無遙控器搖桿或 RC 數據'}</div>
             ) : !isDataLoaded ? (
               <div className={styles.emptyHint}>{state.language === 'en' ? 'Loading Stick Data...' : '載入搖桿數據中...'}</div>
             ) : (
@@ -563,7 +632,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             )}
           </div>
 
-          {/* 飛行模式與解鎖狀態 (獨立圖表) */}
+          {/* 飛行模式與解鎖狀態 */}
           <div className={styles.card}>
             <div className={styles.cardHeader}>
               <span className={styles.cardTitle}>
