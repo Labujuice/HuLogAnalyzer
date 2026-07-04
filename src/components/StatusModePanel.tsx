@@ -3,7 +3,6 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useApp } from '../store/appStore';
 import { NAV_STATE_MAP, ARMING_STATE_MAP } from '../types/ulog';
-import { formatRelativeTime } from '../parser/utils';
 import styles from './StatusModePanel.module.css';
 
 interface StatusModePanelProps {
@@ -21,17 +20,16 @@ interface ModeTransition {
   color: string;
 }
 
-// 預設模式顏色映射，調和暗色系
 const MODE_COLORS: Record<number, string> = {
-  0: 'rgba(148, 163, 184, 0.15)', // MANUAL (Grey)
-  1: 'rgba(56, 189, 248, 0.15)',  // ALTCTL (Light Blue)
-  2: 'rgba(16, 185, 129, 0.15)',  // POSCTL (Green)
-  3: 'rgba(167, 139, 250, 0.15)', // AUTO_MISSION (Purple)
-  4: 'rgba(251, 146, 60, 0.15)',  // AUTO_LOITER (Orange)
-  5: 'rgba(239, 68, 68, 0.15)',   // AUTO_RTL (Red)
-  8: 'rgba(245, 158, 11, 0.15)',  // STAB (Yellow)
-  9: 'rgba(20, 184, 166, 0.15)',  // AUTO_TAKEOFF (Teal)
-  10: 'rgba(217, 70, 239, 0.15)', // AUTO_LAND (Magenta)
+  0: 'rgba(148, 163, 184, 0.15)', // MANUAL
+  1: 'rgba(56, 189, 248, 0.15)',  // ALTCTL
+  2: 'rgba(16, 185, 129, 0.15)',  // POSCTL
+  3: 'rgba(167, 139, 250, 0.15)', // AUTO_MISSION
+  4: 'rgba(251, 146, 60, 0.15)',  // AUTO_LOITER
+  5: 'rgba(239, 68, 68, 0.15)',   // AUTO_RTL
+  8: 'rgba(245, 158, 11, 0.15)',  // STAB
+  9: 'rgba(20, 184, 166, 0.15)',  // AUTO_TAKEOFF
+  10: 'rgba(217, 70, 239, 0.15)', // AUTO_LAND
 };
 
 export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps) {
@@ -45,29 +43,49 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
 
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [hasSticks, setHasSticks] = useState(false);
+  const [stickTopicName, setStickTopicName] = useState<string>('manual_control_setpoint');
   
-  // 模式轉移事件
+  // 模式轉移與解鎖狀態
   const [transitions, setTransitions] = useState<ModeTransition[]>([]);
   const [currentModeStr, setCurrentModeStr] = useState<string>('UNKNOWN');
   const [currentArmStr, setCurrentArmStr] = useState<string>('DISARMED');
   
-  // 遙控訊號與安全警告
+  // 安全警報與 failsafe 狀態
   const [hasFailsafe, setHasFailsafe] = useState<boolean>(false);
   const [failsafeLogs, setFailsafeLogs] = useState<{ timeS: number; msg: string }[]>([]);
 
-  // 1. 自動檢查並快取數據
+  // 1. 自動檢查實際存在的 Topic 與 Fields，避免請求不存在的欄位導致快取掛起 (Stall)
   useEffect(() => {
     if (!state.summary) return;
     const topics = state.summary.topics;
-    const hasStickTopic = topics.some(t => t.name === 'manual_control_setpoint');
-    setHasSticks(hasStickTopic);
+
+    // 優先尋找 manual_control_setpoint，若無則 fallback 到 rc_channels
+    const stickTopic = topics.find(t => t.name === 'manual_control_setpoint') 
+      || topics.find(t => t.name === 'rc_channels');
+    
+    const statusTopic = topics.find(t => t.name === 'vehicle_status');
+    if (!statusTopic) return;
+
+    setHasSticks(!!stickTopic);
+    if (stickTopic) {
+      setStickTopicName(stickTopic.name);
+    }
+
+    // 過濾真正存在的 status 欄位
+    const statusFields = ['nav_state', 'arming_state', 'failsafe', 'rc_signal_lost']
+      .filter(f => statusTopic.fields.includes(f));
 
     const needed: { name: string; fields: string[] }[] = [
-      { name: 'vehicle_status', fields: ['nav_state', 'arming_state', 'failsafe', 'rc_signal_lost'] }
+      { name: 'vehicle_status', fields: statusFields }
     ];
 
-    if (hasStickTopic) {
-      needed.push({ name: 'manual_control_setpoint', fields: ['x', 'y', 'z', 'r'] });
+    if (stickTopic) {
+      const desiredSticks = stickTopic.name === 'manual_control_setpoint' 
+        ? ['x', 'y', 'z', 'r'] 
+        : ['channels[0]', 'channels[1]', 'channels[2]', 'channels[3]'];
+      const stickFields = desiredSticks.filter(f => stickTopic.fields.includes(f));
+      
+      needed.push({ name: stickTopic.name, fields: stickFields });
     }
 
     let loaded = true;
@@ -79,7 +97,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
       }
     }
     setIsDataLoaded(loaded);
-  }, [state.summary, state.topicCache, requestTopicData, hasSticks]);
+  }, [state.summary, state.topicCache, requestTopicData]);
 
   // 2. 模式變更事件解析
   const parseTransitions = useCallback(() => {
@@ -117,7 +135,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
       }
     }
 
-    // 壓入最後一段
     const lastUs = timestamps[n - 1];
     list.push({
       mode: currentMode,
@@ -163,7 +180,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     parseTransitions();
   }, [parseTransitions]);
 
-  // 3. 全局播放進度聯動模式/解鎖字串
+  // 3. 全局播放時間點同步
   useEffect(() => {
     if (!state.summary || !isDataLoaded) return;
     const statusCache = state.topicCache['vehicle_status:0'];
@@ -185,19 +202,48 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     }
   }, [currentTimeUs, isDataLoaded, state.topicCache, state.summary]);
 
-  // 4. 時序折線圖繪製
+  // 4. 折線圖繪製
   const renderCharts = useCallback(() => {
     if (!state.summary || !isDataLoaded) return;
     const startLogUs = state.summary.startTimestampUs;
 
-    // ─── A. 遙控器操縱桿輸入折線圖（附帶模式背景色帶） ───
+    // ─── A. 搖桿操縱桿 / RC 訊號折線圖 ───
     if (hasSticks) {
-      const stickCache = state.topicCache['manual_control_setpoint:0'];
+      const stickCache = state.topicCache[`${stickTopicName}:0`];
       if (stickCache && stickCache.count > 0 && stickContainerRef.current) {
-        const sx = stickCache.fields['x'];
-        const sy = stickCache.fields['y'];
-        const sz = stickCache.fields['z'];
-        const sr = stickCache.fields['r'];
+        let sx: any = null;
+        let sy: any = null;
+        let sz: any = null;
+        let sr: any = null;
+
+        const isRawRc = stickTopicName === 'rc_channels';
+        if (isRawRc) {
+          const c0 = stickCache.fields['channels[0]']; // Roll
+          const c1 = stickCache.fields['channels[1]']; // Pitch
+          const c2 = stickCache.fields['channels[2]']; // Throttle
+          const c3 = stickCache.fields['channels[3]']; // Yaw
+
+          if (c0 && c1 && c2 && c3) {
+            // 歸一化函數：若為原始 microsecond PWM (1000~2000)，將其歸一化到 -1~1
+            const normalize = (arr: any) => {
+              const res = new Float32Array(arr.length);
+              const isRaw = arr[0] > 500;
+              for (let i = 0; i < arr.length; i++) {
+                res[i] = isRaw ? (arr[i] - 1500) / 500 : arr[i];
+              }
+              return res;
+            };
+            sx = normalize(c1); // Pitch
+            sy = normalize(c0); // Roll
+            sz = normalize(c2); // Throttle
+            sr = normalize(c3); // Yaw
+          }
+        } else {
+          sx = stickCache.fields['x']; // Pitch
+          sy = stickCache.fields['y']; // Roll
+          sz = stickCache.fields['z']; // Throttle
+          sr = stickCache.fields['r']; // Yaw
+        }
 
         if (sx && sy && sz && sr) {
           stickChartRef.current?.destroy();
@@ -218,19 +264,18 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             scales: { x: { time: false }, y: { min: -1.1, max: 1.1 } },
             axes: [
               { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
-              { label: 'Stick Inputs [-1, 1]', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3 }
+              { label: 'Stick / RC Inputs', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3 }
             ],
             series: [
               { label: 'Time (s)' },
-              { label: 'Pitch (x)', stroke: '#ef4444', width: 1.2, points: { show: false } },
-              { label: 'Roll (y)', stroke: '#10b981', width: 1.2, points: { show: false } },
-              { label: 'Throttle (z)', stroke: '#fb923c', width: 1.2, points: { show: false } },
-              { label: 'Yaw (r)', stroke: '#3b82f6', width: 1.2, points: { show: false } }
+              { label: 'Pitch', stroke: '#ef4444', width: 1.2, points: { show: false } },
+              { label: 'Roll', stroke: '#10b981', width: 1.2, points: { show: false } },
+              { label: 'Throttle', stroke: '#fb923c', width: 1.2, points: { show: false } },
+              { label: 'Yaw', stroke: '#3b82f6', width: 1.2, points: { show: false } }
             ],
             hooks: {
               drawClear: [
                 (u: uPlot) => {
-                  // 在底層繪製飛行模式色帶
                   const ctx = u.ctx;
                   transitions.forEach(t => {
                     const x0 = u.valToPos(t.startS, 'x', true);
@@ -240,7 +285,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
                     ctx.fillStyle = t.color;
                     ctx.fillRect(x0, u.bbox.top, x1 - x0, u.bbox.height);
                     
-                    // 在色帶頂部渲染模式名稱
                     if (x1 - x0 > 40) {
                       ctx.fillStyle = '#64748b';
                       ctx.font = '9px system-ui, sans-serif';
@@ -253,7 +297,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
               ],
               drawAxes: [
                 (u: uPlot) => {
-                  // 繪製播放時間線
                   const timeSec = (currentTimeUs - startLogUs) / 1e6;
                   const cx = u.valToPos(timeSec, 'x', true);
                   if (cx >= u.bbox.left && cx <= u.bbox.left + u.bbox.width) {
@@ -281,7 +324,10 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
       const fs = statusCache.fields['failsafe'];
       const rcLost = statusCache.fields['rc_signal_lost'];
 
-      if (fs && rcLost) {
+      const hasFsField = !!fs;
+      const hasRcField = !!rcLost;
+
+      if (hasFsField || hasRcField) {
         failsafeChartRef.current?.destroy();
         failsafeChartRef.current = null;
 
@@ -291,7 +337,19 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
           xsSec[i] = (statusCache.timestamps[i] - startLogUs) / 1e6;
         }
 
-        const uPlotData: uPlot.AlignedData = [xsSec, fs, rcLost];
+        const yCols: Float32Array[] = [];
+        const seriesOpts: any[] = [{ label: 'Time (s)' }];
+
+        if (hasFsField) {
+          yCols.push(fs instanceof Float32Array ? fs : new Float32Array(fs));
+          seriesOpts.push({ label: 'Failsafe Triggered', stroke: '#ef4444', width: 1.5, points: { show: false } as any });
+        }
+        if (hasRcField) {
+          yCols.push(rcLost instanceof Float32Array ? rcLost : new Float32Array(rcLost));
+          seriesOpts.push({ label: 'RC Signal Lost', stroke: '#fb923c', width: 1.5, points: { show: false } as any });
+        }
+
+        const uPlotData: uPlot.AlignedData = [xsSec, ...yCols] as uPlot.AlignedData;
         const rect = failsafeContainerRef.current.getBoundingClientRect();
 
         const opts: uPlot.Options = {
@@ -302,11 +360,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
             { stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3, values: (u, vals) => vals.map(v => v === 1 ? 'True' : 'False') }
           ],
-          series: [
-            { label: 'Time (s)' },
-            { label: 'Failsafe Triggered', stroke: '#ef4444', width: 1.5, points: { show: false } },
-            { label: 'RC Signal Lost', stroke: '#fb923c', width: 1.5, points: { show: false } }
-          ],
+          series: seriesOpts,
           hooks: {
             drawAxes: [
               (u: uPlot) => {
@@ -329,9 +383,8 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
         failsafeChartRef.current = new uPlot(opts, uPlotData, failsafeContainerRef.current);
       }
     }
-  }, [isDataLoaded, hasSticks, state.topicCache, state.summary, transitions, currentTimeUs]);
+  }, [isDataLoaded, hasSticks, stickTopicName, state.topicCache, state.summary, transitions, currentTimeUs]);
 
-  // 重建圖表
   useEffect(() => {
     renderCharts();
   }, [renderCharts]);
@@ -389,7 +442,9 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
           {/* 操縱桿與模式背景 */}
           <div className={styles.card}>
             <div className={styles.cardHeader}>
-              <span className={styles.cardTitle}>🎮 {state.language === 'en' ? 'Pilot Intervention (Stick Inputs) & Modes' : '遙控器搖桿輸入 (人為介入) 與飛行模式'}</span>
+              <span className={styles.cardTitle}>
+                🎮 {state.language === 'en' ? 'Pilot Intervention (Stick Inputs) & Modes' : `遙控器操縱桿輸入 (${stickTopicName}) 與飛行模式`}
+              </span>
             </div>
             {!hasSticks ? (
               <div className={styles.emptyHint}>{state.language === 'en' ? 'No manual stick inputs found' : '日誌中無遙控器搖桿數據'}</div>

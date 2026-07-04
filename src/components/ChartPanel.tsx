@@ -694,65 +694,27 @@ export function ChartPanel({
 
       {panel.type === 'empty' && (
         <div className={styles.emptyChoice}>
-          <div className={styles.choiceTitle}>
-            {state.language === 'en' ? 'Select panel display content' : '選擇此區塊顯示的內容'}
+          <div className={styles.emptyPromptIcon} style={{ marginBottom: '8px' }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}>
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+              <line x1="15" y1="3" x2="15" y2="21"/>
+              <line x1="3" y1="9" x2="21" y2="9"/>
+              <line x1="3" y1="15" x2="21" y2="15"/>
+            </svg>
           </div>
-          <div className={styles.choiceButtons}>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
-            >
-              {state.language === 'en' ? '📊 Data Chart' : '📊 數據圖表'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'attitude3d' })}
-            >
-              {state.language === 'en' ? '🛸 3D Attitude Viewer' : '🛸 3D 姿態觀測器'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'ahrs' })}
-            >
-              {state.language === 'en' ? '✈️ AHRS PFD HUD' : '✈️ AHRS 航空水平儀'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'map' })}
-            >
-              {state.language === 'en' ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'vibration' })}
-            >
-              {state.language === 'en' ? '📈 Vibration FFT' : '📈 振動量分析'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'pid_tracking' })}
-            >
-              {state.language === 'en' ? '🎯 PID Tracking' : '🎯 控制器追隨響應'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'motor_balance' })}
-            >
-              {state.language === 'en' ? '⚡ Motor Balance' : '⚡ 馬達動力平衡'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'magnetic_analysis' })}
-            >
-              {state.language === 'en' ? '🧲 Magnetic & Heading' : '🧲 磁力與航向'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'status_mode' })}
-            >
-              {state.language === 'en' ? '🎛️ Status & Mode' : '🎛️ 飛行狀態與模式'}
-            </button>
+          <div className={styles.choiceTitle} style={{ textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>
+            {state.language === 'en' 
+              ? 'Drag topic fields or toolbox presets here to display' 
+              : '請從左側拖曳數據欄位或快捷工具至此顯示'}
           </div>
+          <button
+            className="btn btn--secondary btn--small"
+            style={{ marginTop: '8px' }}
+            onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
+          >
+            {state.language === 'en' ? '📊 Create Blank Chart' : '📊 建立空白圖表'}
+          </button>
         </div>
       )}
     </div>

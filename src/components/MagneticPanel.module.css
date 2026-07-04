@@ -138,3 +138,24 @@
   font-size: 12px;
   font-style: italic;
 }
+
+.referenceBox {
+  background-color: #111827;
+  border-radius: 4px;
+  padding: 8px 10px;
+  border-left: 3px solid #64748b;
+  margin-bottom: 4px;
+}
+
+.refTitle {
+  font-size: 11px;
+  font-weight: bold;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.refContent {
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.4;
+}

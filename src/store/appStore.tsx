@@ -210,7 +210,7 @@ function appReducer(state: AppState, action: Action): AppState {
 
     case 'REMOVE_PANEL': {
       const { panelId: rmId } = action as { type: 'REMOVE_PANEL'; panelId: string };
-      // 若整個 layout 只有一個 panel，清空 series 而不刪除
+      // 若整個 layout 只有一個 panel，清空 series 且重設為 empty
       if (
         state.layout.panels.length === 1 &&
         'id' in state.layout.panels[0] &&
@@ -220,7 +220,7 @@ function appReducer(state: AppState, action: Action): AppState {
           ...state,
           layout: {
             ...state.layout,
-            panels: [{ ...(state.layout.panels[0] as LeafPanel), series: [] }],
+            panels: [{ ...(state.layout.panels[0] as LeafPanel), type: 'empty', series: [] }],
           },
         };
       }

@@ -107,6 +107,28 @@
   color: #e2e8f0;
 }
 
+.chartsStack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 10px;
+  min-height: 0;
+}
+
+.chartBlock {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chartBlockHeader {
+  font-size: 11px;
+  font-weight: 500;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
 .chartWrapper {
   position: relative;
   flex: 1;

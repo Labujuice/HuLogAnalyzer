@@ -41,6 +41,18 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
     }
   }, [state.summary]);
 
+  const fftCacheRef = useRef<Map<string, {
+    frequencies: Float64Array;
+    ampX: Float32Array;
+    ampY: Float32Array;
+    ampZ: Float32Array;
+    peaks: { axis: string; freq: number; amp: number }[];
+    startS: number;
+    endS: number;
+  }>>(new Map());
+
+  const autoCalcTimeoutRef = useRef<any>(null);
+
   // 執行 FFT 計算
   const handleCalculateFFT = useCallback(async () => {
     if (!state.summary) return;
@@ -50,12 +62,48 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
       return;
     }
 
+    const startUs = state.playback.startTimeUs;
+    const endUs = state.playback.endTimeUs;
+    const cacheKey = `${sensorType}:${startUs}:${endUs}`;
+
+    // 檢查快取
+    if (fftCacheRef.current.has(cacheKey)) {
+      const cached = fftCacheRef.current.get(cacheKey)!;
+      setComputedRange({ startS: cached.startS, endS: cached.endS });
+      setPeaks(cached.peaks);
+      setErrorMsg(null);
+
+      if (containerRef.current) {
+        chartRef.current?.destroy();
+        chartRef.current = null;
+
+        const uPlotData: uPlot.AlignedData = [cached.frequencies, cached.ampX, cached.ampY, cached.ampZ];
+        const rect = containerRef.current.getBoundingClientRect();
+        const unit = sensorType === 'accel' ? 'm/s²' : 'rad/s';
+
+        const opts: uPlot.Options = {
+          width: Math.max(100, Math.floor(rect.width)),
+          height: Math.max(100, Math.floor(rect.height)),
+          scales: { x: { time: false }, y: { auto: true } },
+          axes: [
+            { label: 'Frequency (Hz)', stroke: '#64748b', grid: { stroke: '#1e293b', width: 1 }, font: '11px JetBrains Mono, monospace' },
+            { label: `Amplitude (${unit})`, stroke: '#64748b', grid: { stroke: '#1e293b', width: 1 }, font: '11px JetBrains Mono, monospace', side: 3 }
+          ],
+          series: [
+            { label: 'Frequency' },
+            { label: `${sensorType.toUpperCase()} X`, stroke: '#ef4444', width: 1.5, points: { show: false } },
+            { label: `${sensorType.toUpperCase()} Y`, stroke: '#10b981', width: 1.5, points: { show: false } },
+            { label: `${sensorType.toUpperCase()} Z`, stroke: '#3b82f6', width: 1.5, points: { show: false } }
+          ]
+        };
+        chartRef.current = new uPlot(opts, uPlotData, containerRef.current);
+      }
+      return;
+    }
+
     setIsCalculating(true);
     setErrorMsg(null);
 
-    // 取得當前圖表所框選的範圍（若無框選則使用播放進度條所處視角，或預設整段）
-    const startUs = state.playback.startTimeUs;
-    const endUs = state.playback.endTimeUs;
     const startS = (startUs - state.summary.startTimestampUs) / 1e6;
     const endS = (endUs - state.summary.startTimestampUs) / 1e6;
 
@@ -84,7 +132,6 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
       const currentPeaks = results.map((r, idx) => {
         let maxVal = -1;
         let maxFreq = 0;
-        // 忽略 2Hz 以下的極低頻段，避免受殘留直流或超低頻慢漂干擾
         const startSearchIdx = Math.floor(2 / (r.frequencies[1] - r.frequencies[0])) || 0;
         for (let i = startSearchIdx; i < r.amplitudes.length; i++) {
           if (r.amplitudes[i] > maxVal) {
@@ -96,6 +143,17 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
       });
       setPeaks(currentPeaks);
 
+      // 快取結果
+      fftCacheRef.current.set(cacheKey, {
+        frequencies,
+        ampX,
+        ampY,
+        ampZ,
+        peaks: currentPeaks,
+        startS,
+        endS
+      });
+
       // 繪製頻域圖表
       if (containerRef.current) {
         chartRef.current?.destroy();
@@ -103,51 +161,21 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
 
         const uPlotData: uPlot.AlignedData = [frequencies, ampX, ampY, ampZ];
         const rect = containerRef.current.getBoundingClientRect();
-        
         const unit = sensorType === 'accel' ? 'm/s²' : 'rad/s';
-        
+
         const opts: uPlot.Options = {
           width: Math.max(100, Math.floor(rect.width)),
           height: Math.max(100, Math.floor(rect.height)),
-          scales: {
-            x: { time: false },
-            y: { auto: true }
-          },
+          scales: { x: { time: false }, y: { auto: true } },
           axes: [
-            {
-              label: 'Frequency (Hz)',
-              stroke: '#64748b',
-              grid: { stroke: '#1e293b', width: 1 },
-              font: '11px JetBrains Mono, monospace',
-            },
-            {
-              label: `Amplitude (${unit})`,
-              stroke: '#64748b',
-              grid: { stroke: '#1e293b', width: 1 },
-              font: '11px JetBrains Mono, monospace',
-              side: 3,
-            }
+            { label: 'Frequency (Hz)', stroke: '#64748b', grid: { stroke: '#1e293b', width: 1 }, font: '11px JetBrains Mono, monospace' },
+            { label: `Amplitude (${unit})`, stroke: '#64748b', grid: { stroke: '#1e293b', width: 1 }, font: '11px JetBrains Mono, monospace', side: 3 }
           ],
           series: [
             { label: 'Frequency' },
-            {
-              label: `${sensorType.toUpperCase()} X`,
-              stroke: '#ef4444',
-              width: 1.5,
-              points: { show: false }
-            },
-            {
-              label: `${sensorType.toUpperCase()} Y`,
-              stroke: '#10b981',
-              width: 1.5,
-              points: { show: false }
-            },
-            {
-              label: `${sensorType.toUpperCase()} Z`,
-              stroke: '#3b82f6',
-              width: 1.5,
-              points: { show: false }
-            }
+            { label: `${sensorType.toUpperCase()} X`, stroke: '#ef4444', width: 1.5, points: { show: false } },
+            { label: `${sensorType.toUpperCase()} Y`, stroke: '#10b981', width: 1.5, points: { show: false } },
+            { label: `${sensorType.toUpperCase()} Z`, stroke: '#3b82f6', width: 1.5, points: { show: false } }
           ]
         };
 
@@ -159,7 +187,7 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
     } finally {
       setIsCalculating(false);
     }
-  }, [state.summary, sensorType, state.playback, state.language, findSensorTopic]);
+  }, [state.summary, sensorType, state.playback.startTimeUs, state.playback.endTimeUs, state.language, findSensorTopic]);
 
   // 當元件掛載或 sensor 改變時自動清理
   useEffect(() => {
@@ -168,6 +196,23 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
       chartRef.current = null;
     };
   }, [sensorType]);
+
+  // 監聽時間軸縮放/感測器切換，防抖自動觸發計算
+  useEffect(() => {
+    if (autoCalcTimeoutRef.current) {
+      clearTimeout(autoCalcTimeoutRef.current);
+    }
+    
+    autoCalcTimeoutRef.current = setTimeout(() => {
+      handleCalculateFFT();
+    }, 300); // 300ms 防抖
+
+    return () => {
+      if (autoCalcTimeoutRef.current) {
+        clearTimeout(autoCalcTimeoutRef.current);
+      }
+    };
+  }, [sensorType, state.playback.startTimeUs, state.playback.endTimeUs, handleCalculateFFT]);
 
   // Resize 監聽
   useEffect(() => {
@@ -206,16 +251,6 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
             {state.language === 'en' ? '🔄 Gyroscope FFT' : '🔄 陀螺儀頻譜'}
           </button>
         </div>
-
-        <button
-          className={`btn btn--primary ${styles.calcBtn}`}
-          onClick={handleCalculateFFT}
-          disabled={isCalculating || !hasData}
-        >
-          {isCalculating 
-            ? (state.language === 'en' ? 'Calculating...' : '計算中...') 
-            : (state.language === 'en' ? '⚡ Compute FFT' : '⚡ 計算頻譜')}
-        </button>
       </div>
 
       {/* 狀態與資訊列 */}
@@ -229,8 +264,8 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
         ) : (
           <span className={styles.hintInfo}>
             {state.language === 'en'
-              ? 'Zoom on the chart first, then click Compute FFT'
-              : '可先在時序圖上框選縮放範圍，再點擊「計算頻譜」'}
+              ? 'Zoom on the timeline to automatically recalculate'
+              : '在時序圖上縮放會自動觸發解算'}
           </span>
         )}
 
@@ -260,11 +295,11 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
         </div>
       ) : (
         <div className={styles.chartWrapper}>
-          {!computedRange && !isCalculating && (
+          {isCalculating && (
             <div className={styles.chartOverlay}>
-              <button className="btn btn--primary btn--large" onClick={handleCalculateFFT}>
-                {state.language === 'en' ? 'Click to compute FFT' : '點擊開始計算 FFT 頻譜'}
-              </button>
+              <div style={{ color: '#38bdf8', fontSize: '13px', fontWeight: 'bold' }}>
+                {state.language === 'en' ? '⚡ Computing FFT spectrum...' : '⚡ 正在計算頻譜中...'}
+              </div>
             </div>
           )}
           <div ref={containerRef} className={styles.chartArea} />

@@ -71,6 +71,17 @@ const PRESET_CATEGORIES: PresetCategory[] = [
       { id: 'fs_modes', labelEn: 'Flight Modes & RC Sticks', labelZh: '飛行模式與操縱桿輸入', type: 'status_mode' },
       { id: 'fs_events', labelEn: 'Failsafes & Safety Events', labelZh: '安全防護與斷訊告警紀錄', type: 'status_mode' }
     ]
+  },
+  {
+    id: 'toolbox',
+    labelEn: '🛠️ Interactive Toolbox',
+    labelZh: '🛠️ 互動工具箱',
+    icon: '🛠️',
+    children: [
+      { id: 'tool_3d', labelEn: '🛸 3D Attitude Viewer', labelZh: '🛸 3D 姿態觀測器', type: 'attitude3d' },
+      { id: 'tool_hud', labelEn: '✈️ AHRS PFD HUD', labelZh: '✈️ AHRS 航空水平儀', type: 'ahrs' },
+      { id: 'tool_map', labelEn: '🗺️ 2D GPS Map', labelZh: '🗺️ 2D 地圖軌跡', type: 'map' }
+    ]
   }
 ];
 
@@ -84,6 +95,7 @@ export function QuickPlotPresets() {
     motors: false,
     magnetic: false,
     status: false,
+    toolbox: false,
     custom: false
   });
   

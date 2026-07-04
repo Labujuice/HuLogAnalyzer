@@ -497,15 +497,39 @@
 }
 
 .topicsTreeSection {
-  flex: 1.2;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
+.resizer {
+  height: 6px;
+  background-color: var(--clr-border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease;
+  position: relative;
+}
+
+.resizer::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 2px;
+  background-color: var(--clr-text-muted);
+  border-radius: 1px;
+}
+
+.resizer:hover,
+.resizer:active {
+  background-color: var(--clr-accent);
+}
+
 .presetsSection {
-  flex: 0.8;
   min-height: 0;
   display: flex;
   flex-direction: column;
