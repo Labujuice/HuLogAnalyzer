@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useApp } from '../store/appStore';
@@ -11,26 +11,41 @@ interface MagneticPanelProps {
   currentTimeUs: number;
 }
 
+interface MagMetricData {
+  idx: number;
+  name: string;
+  avg: number;
+  variation: number;
+  emi: boolean;
+}
+
 export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
   const { state, requestTopicData } = useApp();
   
   const normContainerRef = useRef<HTMLDivElement>(null);
+  const rawContainerRef = useRef<HTMLDivElement>(null);
   const headingContainerRef = useRef<HTMLDivElement>(null);
   
   const normChartRef = useRef<uPlot | null>(null);
+  const rawChartRef = useRef<uPlot | null>(null);
   const headingChartRef = useRef<uPlot | null>(null);
 
   const [magInstances, setMagInstances] = useState<{ name: string; multiId: number }[]>([]);
   const [hasHeading, setHasHeading] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   
-  // 診斷指標
-  const [maxNormVariation, setMaxNormVariation] = useState<number>(0);
-  const [avgNorm, setAvgNorm] = useState<number>(0);
+  // 磁力計實例的獨立診斷指標
+  const [magMetrics, setMagMetrics] = useState<MagMetricData[]>([]);
+  const lastMetricsStrRef = useRef<string>('');
   const [gsfOffsetAvg, setGsfOffsetAvg] = useState<number | null>(null);
-  const [emiAlert, setEmiAlert] = useState<boolean>(false);
 
-  // 1. 自動檢測所有磁力計實例與航向 Topic
+  // 選擇觀測哪一個磁力計的原始三軸數值 (Compass 0, 1...)
+  const [activeRawMagIdx, setActiveRawMagIdx] = useState<number>(0);
+
+  // 1. 本地 uPlot 橫向縮放與游標同步對象
+  const magSync = useMemo(() => uPlot.sync('mag-panel-sync'), []);
+
+  // 自動檢測所有磁力計實例與航向 Topic
   useEffect(() => {
     if (!state.summary) return;
     
@@ -85,7 +100,6 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
       }
     }
 
-    // 檢查快取加載狀態
     let allLoaded = true;
     for (const t of neededTopics) {
       const key = `${t.name}:${t.multiId}`;
@@ -97,6 +111,29 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
 
     setIsDataLoaded(allLoaded);
   }, [state.summary, state.topicCache, requestTopicData]);
+
+  // 滾輪縮放註冊輔助器
+  const registerWheelZoom = useCallback((plot: uPlot) => {
+    plot.over.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      const minX = plot.scales.x.min!;
+      const maxX = plot.scales.x.max!;
+      const range = maxX - minX;
+      const rect = plot.over.getBoundingClientRect();
+      const mousePct = (e.clientX - rect.left) / rect.width;
+      const mouseVal = minX + mousePct * range;
+      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+      const newRange = range * zoomFactor;
+      const newMin = mouseVal - mousePct * newRange;
+      const newMax = newMin + newRange;
+      const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+
+      plot.setScale('x', {
+        min: Math.max(0, newMin),
+        max: Math.min(logEnd, newMax),
+      });
+    });
+  }, [state.summary]);
 
   // 2. 數據解算與繪圖
   const renderCharts = useCallback(() => {
@@ -117,8 +154,7 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
         const dataCols: Float32Array[] = [];
         const seriesOpts: any[] = [{ label: 'Time (s)' }];
         
-        let overallMaxVariation = 0;
-        let overallAvg = 0;
+        const computedMetrics: MagMetricData[] = [];
 
         magInstances.forEach((inst, idx) => {
           const cache = state.topicCache[`${inst.name}:${inst.multiId}`];
@@ -129,10 +165,11 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
             
             if (mx && my && mz) {
               const norm = new Float32Array(n);
+              let sumNorm = 0;
+              let minN = Infinity;
+              let maxN = -Infinity;
+
               if (idx === 0) {
-                let sumNorm = 0;
-                let minN = Infinity;
-                let maxN = -Infinity;
                 for (let i = 0; i < n; i++) {
                   const val = Math.sqrt(mx[i]*mx[i] + my[i]*my[i] + mz[i]*mz[i]);
                   norm[i] = val;
@@ -140,18 +177,27 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
                   if (val < minN) minN = val;
                   if (val > maxN) maxN = val;
                 }
-                overallAvg = sumNorm / n;
-                overallMaxVariation = maxN - minN;
               } else {
-                // 將其他磁力計數據插值對齊到 Compass 0 的時間軸
                 const mxAl = interpolateSeries(cache.timestamps, mx as any, refCache.timestamps);
                 const myAl = interpolateSeries(cache.timestamps, my as any, refCache.timestamps);
                 const mzAl = interpolateSeries(cache.timestamps, mz as any, refCache.timestamps);
                 for (let i = 0; i < n; i++) {
-                  norm[i] = Math.sqrt(mxAl[i]*mxAl[i] + myAl[i]*myAl[i] + mzAl[i]*mzAl[i]);
+                  const val = Math.sqrt(mxAl[i]*mxAl[i] + myAl[i]*myAl[i] + mzAl[i]*mzAl[i]);
+                  norm[i] = val;
+                  sumNorm += val;
+                  if (val < minN) minN = val;
+                  if (val > maxN) maxN = val;
                 }
               }
               
+              computedMetrics.push({
+                idx: inst.multiId,
+                name: inst.name,
+                avg: sumNorm / n,
+                variation: maxN - minN,
+                emi: (maxN - minN) > 0.15
+              });
+
               dataCols.push(norm);
               seriesOpts.push({
                 label: `Compass ${inst.multiId} Norm`,
@@ -163,10 +209,12 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
           }
         });
 
-        setAvgNorm(overallAvg);
-        setMaxNormVariation(overallMaxVariation);
-        // 若磁力計在飛行中振盪起伏大於 0.15 Gauss，判定為高大電流 EMI 干擾
-        setEmiAlert(overallMaxVariation > 0.15);
+        // 避免 React 更新迴圈
+        const metricsStr = JSON.stringify(computedMetrics);
+        if (metricsStr !== lastMetricsStrRef.current) {
+          lastMetricsStrRef.current = metricsStr;
+          setMagMetrics(computedMetrics);
+        }
 
         if (normContainerRef.current && dataCols.length > 0) {
           normChartRef.current?.destroy();
@@ -183,7 +231,8 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
               { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
               { label: 'Norm (Gauss)', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3 }
             ],
-            series: seriesOpts as any,
+            series: seriesOpts,
+            cursor: { sync: { key: magSync.key } },
             hooks: {
               drawAxes: [
                 (u: uPlot) => {
@@ -203,12 +252,78 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
               ]
             }
           };
-          normChartRef.current = new uPlot(opts, uPlotData, normContainerRef.current);
+          const plot = new uPlot(opts, uPlotData, normContainerRef.current);
+          registerWheelZoom(plot);
+          normChartRef.current = plot;
         }
       }
     }
 
-    // ─── B. 多源航向角計算與繪製 (EKF Yaw vs GSF Yaw vs GPS COG) ───
+    // ─── B. 繪製選定指南針的原始三軸磁力值 (X, Y, Z) ───
+    if (magInstances.length > activeRawMagIdx) {
+      const targetInst = magInstances[activeRawMagIdx];
+      const cache = state.topicCache[`${targetInst.name}:${targetInst.multiId}`];
+      if (cache && cache.count > 0 && rawContainerRef.current) {
+        const mx = cache.fields['magnetometer_ga[0]'] || cache.fields['x'];
+        const my = cache.fields['magnetometer_ga[1]'] || cache.fields['y'];
+        const mz = cache.fields['magnetometer_ga[2]'] || cache.fields['z'];
+
+        if (mx && my && mz) {
+          rawChartRef.current?.destroy();
+          rawChartRef.current = null;
+
+          const n = cache.count;
+          const xsSec = new Float64Array(n);
+          for (let i = 0; i < n; i++) {
+            xsSec[i] = (cache.timestamps[i] - startLogUs) / 1e6;
+          }
+
+          const uPlotData: uPlot.AlignedData = [xsSec, mx, my, mz] as any;
+          const rect = rawContainerRef.current.getBoundingClientRect();
+
+          const opts: uPlot.Options = {
+            width: Math.max(100, Math.floor(rect.width)),
+            height: Math.max(80, Math.floor(rect.height)),
+            scales: { x: { time: false }, y: { auto: true } },
+            axes: [
+              { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
+              { label: 'Mag Axis (Gauss)', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3 }
+            ],
+            series: [
+              { label: 'Time (s)' },
+              { label: 'Mag X', stroke: '#ef4444', width: 1.2, points: { show: false } },
+              { label: 'Mag Y', stroke: '#10b981', width: 1.2, points: { show: false } },
+              { label: 'Mag Z', stroke: '#3b82f6', width: 1.2, points: { show: false } }
+            ] as any,
+            cursor: { sync: { key: magSync.key } },
+            hooks: {
+              drawAxes: [
+                (u: uPlot) => {
+                  const timeSec = (currentTimeUs - startLogUs) / 1e6;
+                  const cx = u.valToPos(timeSec, 'x', true);
+                  if (cx >= u.bbox.left && cx <= u.bbox.left + u.bbox.width) {
+                    u.ctx.save();
+                    u.ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+                    u.ctx.setLineDash([3, 3]);
+                    u.ctx.beginPath();
+                    u.ctx.moveTo(cx, u.bbox.top);
+                    u.ctx.lineTo(cx, u.bbox.top + u.bbox.height);
+                    u.ctx.stroke();
+                    u.ctx.restore();
+                  }
+                }
+              ]
+            }
+          };
+
+          const plot = new uPlot(opts, uPlotData, rawContainerRef.current);
+          registerWheelZoom(plot);
+          rawChartRef.current = plot;
+        }
+      }
+    }
+
+    // ─── C. 多源航向角計算與繪製 (EKF Yaw vs GSF Yaw vs GPS COG) ───
     if (hasHeading) {
       const attCache = state.topicCache['vehicle_attitude:0'];
       const gsfCache = state.topicCache['yaw_estimator_status:0'];
@@ -223,7 +338,6 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
         if (q0 && q1 && q2 && q3) {
           const n = attCache.count;
           
-          // EKF 融合航向
           const ekfYaw = new Float32Array(n);
           for (let i = 0; i < n; i++) {
             const euler = quatToEuler(q0[i], q1[i], q2[i], q3[i]);
@@ -232,7 +346,6 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
             ekfYaw[i] = yawDeg;
           }
 
-          // 對齊並解算 GSF Yaw
           const gsfYawAligned = new Float32Array(n);
           let sumGsfOffset = 0;
           let validGsfCount = 0;
@@ -254,7 +367,6 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
             setGsfOffsetAvg(validGsfCount > 0 ? sumGsfOffset / validGsfCount : null);
           }
 
-          // 對齊並解算 GPS COG (地面航向)
           const gpsCogAligned = new Float32Array(n);
           const hasGps = gpsCache && gpsCache.count > 0 && gpsCache.fields['cog_rad'];
           if (hasGps) {
@@ -302,7 +414,8 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
                 { stroke: '#64748b', font: '10px JetBrains Mono, monospace' },
                 { label: 'Heading (Degrees)', stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3, values: (u, vals) => vals.map(v => `${v}°`) }
               ],
-              series: seriesOpts as any,
+              series: seriesOpts,
+              cursor: { sync: { key: magSync.key } },
               hooks: {
                 drawAxes: [
                   (u: uPlot) => {
@@ -322,12 +435,14 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
                 ]
               }
             };
-            headingChartRef.current = new uPlot(opts, uPlotData, headingContainerRef.current);
+            const plot = new uPlot(opts, uPlotData, headingContainerRef.current);
+            registerWheelZoom(plot);
+            headingChartRef.current = plot;
           }
         }
       }
     }
-  }, [isDataLoaded, magInstances, hasHeading, state.topicCache, state.summary, currentTimeUs]);
+  }, [isDataLoaded, magInstances, hasHeading, state.topicCache, state.summary, currentTimeUs, activeRawMagIdx, magSync, registerWheelZoom]);
 
   // 重建圖表
   useEffect(() => {
@@ -337,6 +452,7 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
   // 播放時間更新時重繪
   useEffect(() => {
     if (normChartRef.current) normChartRef.current.redraw(false);
+    if (rawChartRef.current) rawChartRef.current.redraw(false);
     if (headingChartRef.current) headingChartRef.current.redraw(false);
   }, [currentTimeUs]);
 
@@ -347,6 +463,10 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
         const rect = normContainerRef.current.getBoundingClientRect();
         normChartRef.current.setSize({ width: Math.max(50, rect.width), height: Math.max(50, rect.height) });
       }
+      if (rawChartRef.current && rawContainerRef.current) {
+        const rect = rawContainerRef.current.getBoundingClientRect();
+        rawChartRef.current.setSize({ width: Math.max(50, rect.width), height: Math.max(50, rect.height) });
+      }
       if (headingChartRef.current && headingContainerRef.current) {
         const rect = headingContainerRef.current.getBoundingClientRect();
         headingChartRef.current.setSize({ width: Math.max(50, rect.width), height: Math.max(50, rect.height) });
@@ -355,6 +475,7 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
 
     const ro = new ResizeObserver(handleResize);
     if (normContainerRef.current) ro.observe(normContainerRef.current);
+    if (rawContainerRef.current) ro.observe(rawContainerRef.current);
     if (headingContainerRef.current) ro.observe(headingContainerRef.current);
     return () => ro.disconnect();
   }, []);
@@ -364,10 +485,10 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
   return (
     <div className={styles.root}>
       <div className={styles.container}>
-        {/* 左側雙圖表 */}
-        <div className={styles.chartColumn}>
+        {/* 左側三圖表 */}
+        <div className={styles.chartColumn} style={{ gap: '6px' }}>
           {/* 磁場強度模長 */}
-          <div className={styles.card}>
+          <div className={styles.card} style={{ flex: 1 }}>
             <div className={styles.cardHeader}>
               <span className={styles.cardTitle}>
                 🧲 {state.language === 'en' ? 'Magnetic Field Strength (Norm)' : '磁力計三軸模長強度比較 (Vector Norm)'}
@@ -384,8 +505,39 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
             )}
           </div>
 
+          {/* 原始三軸磁力值 (X, Y, Z) - 新增 */}
+          <div className={styles.card} style={{ flex: 1 }}>
+            <div className={styles.cardHeader} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className={styles.cardTitle}>
+                🧲 {state.language === 'en' ? 'Raw 3-Axis Magnetic Values' : '磁力計原始三軸數據 (Gauss)'}
+              </span>
+              {magInstances.length > 1 && (
+                <select
+                  value={activeRawMagIdx}
+                  onChange={(e) => setActiveRawMagIdx(Number(e.target.value))}
+                  style={{ background: '#111827', border: '1px solid #1e293b', color: '#e2e8f0', fontSize: '11px', borderRadius: '3px', padding: '2px 4px' }}
+                >
+                  {magInstances.map((inst, idx) => (
+                    <option key={idx} value={idx}>
+                      Compass {inst.multiId} ({inst.name})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            {!hasMag ? (
+              <div className={styles.emptyHint}>{state.language === 'en' ? 'No magnetometer data' : '無磁力計數據'}</div>
+            ) : !isDataLoaded ? (
+              <div className={styles.emptyHint}>{state.language === 'en' ? 'Loading Raw Mag...' : '載入三軸磁力數據中...'}</div>
+            ) : (
+              <div className={styles.chartWrapper}>
+                <div ref={rawContainerRef} className={styles.chartArea} />
+              </div>
+            )}
+          </div>
+
           {/* 多源航向對比 */}
-          <div className={styles.card}>
+          <div className={styles.card} style={{ flex: 1 }}>
             <div className={styles.cardHeader}>
               <span className={styles.cardTitle}>
                 🧭 {state.language === 'en' ? 'Multi-Source Heading (Yaw/COG) Comparison' : 'EKF/GSF/GPS 航向角與航跡向同步比對'}
@@ -417,26 +569,29 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
                   {magInstances.length} 個
                 </span>
               </div>
-              <div className={styles.reportRow}>
-                <span className={styles.reportKey}>{state.language === 'en' ? 'Average Mag Norm' : '主指南針平均模長'}</span>
-                <span className={styles.reportVal} style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                  {avgNorm.toFixed(3)} Gauss
+
+              {/* 橫向分割線與指南針評估列表 */}
+              <div className={styles.divider} />
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8' }}>
+                  {state.language === 'en' ? 'Magnetometer Inst. Status' : '各羅盤實例強度評估：'}
                 </span>
+                {magMetrics.map(m => (
+                  <div key={m.idx} style={{ backgroundColor: '#111827', border: '1px solid #1e293b', borderRadius: '3px', padding: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: '500', marginBottom: '4px' }}>
+                      <span style={{ color: '#e2e8f0' }}>Compass {m.idx}</span>
+                      <span style={{ color: m.emi ? '#f87171' : '#34d399' }}>
+                        {m.emi ? (state.language === 'en' ? '🚨 EMI WARNING' : '🚨 EMI 干擾') : (state.language === 'en' ? '✅ STABLE' : '✅ 穩定')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#64748b' }}>
+                      <span>Avg Norm: <b style={{ fontFamily: 'JetBrains Mono', color: '#94a3b8' }}>{m.avg.toFixed(3)} G</b></span>
+                      <span>Fluct: <b style={{ fontFamily: 'JetBrains Mono', color: m.emi ? '#f87171' : '#94a3b8' }}>{m.variation.toFixed(3)} G</b></span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className={styles.reportRow}>
-                <span className={styles.reportKey}>{state.language === 'en' ? 'Mag Norm Variation' : '磁力振盪幅度'}</span>
-                <span className={styles.reportVal} style={{ fontFamily: 'JetBrains Mono, monospace', color: emiAlert ? '#f87171' : '#34d399' }}>
-                  {maxNormVariation.toFixed(3)} Gauss
-                </span>
-              </div>
-              {gsfOffsetAvg !== null && (
-                <div className={styles.reportRow}>
-                  <span className={styles.reportKey}>{state.language === 'en' ? 'EKF-GSF Yaw Offset' : '與 GSF 航向平均偏差'}</span>
-                  <span className={styles.reportVal} style={{ fontFamily: 'JetBrains Mono, monospace', color: gsfOffsetAvg > 15 ? '#f87171' : '#34d399' }}>
-                    {gsfOffsetAvg.toFixed(1)}°
-                  </span>
-                </div>
-              )}
 
               <div className={styles.divider} />
 
@@ -451,39 +606,22 @@ export function MagneticPanel({ panelId, currentTimeUs }: MagneticPanelProps) {
               </div>
 
               {/* 診斷報告卡 */}
-              <div className={styles.diagBox} style={{ borderLeftColor: emiAlert ? '#ef4444' : '#10b981' }}>
-                <div className={styles.diagTitle} style={{ color: emiAlert ? '#f87171' : '#34d399' }}>
-                  {emiAlert 
-                    ? (state.language === 'en' ? '🚨 High Magnetic Interference (EMI)' : '🚨 偵測到強磁場電磁干擾 (EMI)') 
-                    : (state.language === 'en' ? '✅ Stable Magnetic Environment' : '✅ 磁場環境良好穩定')}
-                </div>
-                <div className={styles.diagContent}>
-                  {emiAlert ? (
-                    state.language === 'en'
-                      ? 'The magnetometer norm fluctuates heavily. This usually indicates high current loops passing near the compass. Recommend recalibrating or relocating the magnetometer module.'
-                      : `指南針三軸模長振盪幅度 (${maxNormVariation.toFixed(3)} Gauss) 大於地磁正常起伏範圍。這通常是動力配線產生的電磁干擾。可能導致 EKF 出現 compass check fail。建議對指南針進行大電流補償校正 (Mag EMI compensation) 或將羅盤模組墊高。`
-                  ) : (
-                    state.language === 'en'
-                      ? 'Compass magnetic environment is clean and stable. No high-current electro-magnetic coupling detected.'
-                      : '指南針磁場模長極為平穩，未檢測到動力大電流電磁干擾。指南針運行環境安全。'
-                  )}
-                </div>
-              </div>
-
-              {gsfOffsetAvg !== null && (
-                <div className={styles.diagBox} style={{ borderLeftColor: gsfOffsetAvg > 10 ? '#ef4444' : '#10b981', marginTop: '10px' }}>
-                  <div className={styles.diagTitle} style={{ color: gsfOffsetAvg > 10 ? '#f87171' : '#34d399' }}>
-                    🧭 {state.language === 'en' ? 'EKF GSF Alignment Diagnostic' : 'EKF GSF 航向評估指標'}
+              {magMetrics.length > 0 && (
+                <div className={styles.diagBox} style={{ borderLeftColor: magMetrics.some(m => m.emi) ? '#ef4444' : '#10b981' }}>
+                  <div className={styles.diagTitle} style={{ color: magMetrics.some(m => m.emi) ? '#f87171' : '#34d399' }}>
+                    {magMetrics.some(m => m.emi)
+                      ? (state.language === 'en' ? '🚨 High Magnetic Interference (EMI)' : '🚨 偵測到強磁場電磁干擾 (EMI)')
+                      : (state.language === 'en' ? '✅ Stable Magnetic Environment' : '✅ 磁場環境良好穩定')}
                   </div>
                   <div className={styles.diagContent}>
-                    {gsfOffsetAvg > 10 ? (
+                    {magMetrics.some(m => m.emi) ? (
                       state.language === 'en'
-                        ? 'Significant difference between EKF combined Yaw and EKF GSF (pure GPS/IMU) Yaw. This suggests compass calibration errors or alignment offset. Verify the compass installation orientation.'
-                        : `融合航向 (EKF Yaw) 與無磁估計航向 (EKF GSF Yaw) 偏差高達 ${gsfOffsetAvg.toFixed(1)}°。這說明指南針安裝偏角設定錯誤或受到外部固定磁場干擾，導致導航估算存在偏差。建議核對羅盤旋轉方向 (CAL_MAG_ROT)。`
+                        ? 'The magnetometer norm fluctuates heavily. This usually indicates high current loops passing near the compass. Recommend recalibrating or relocating the magnetometer module.'
+                        : '部分指南針三軸模長振盪幅度大於地磁正常起伏範圍。這通常是動力配線產生的電磁干擾。可能導致 EKF 出現 compass check fail。建議對指南針進行大電流補償校正 (Mag EMI compensation) 或將羅盤模組墊高。'
                     ) : (
                       state.language === 'en'
-                        ? 'EKF Yaw and GSF Yaw are well aligned. The navigation solution is highly reliable.'
-                        : '融合航向與 EKF GSF 航向吻合良好，羅盤朝向設定正確，狀態估算具備極高可靠度。'
+                        ? 'Compass magnetic environment is clean and stable. No high-current electro-magnetic coupling detected.'
+                        : '指南針磁場模長極為平穩，未檢測到動力大電流電磁干擾。指南針運行環境安全。'
                     )}
                   </div>
                 </div>

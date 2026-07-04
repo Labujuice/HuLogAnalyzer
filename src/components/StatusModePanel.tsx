@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useApp } from '../store/appStore';
@@ -32,7 +32,6 @@ const MODE_COLORS: Record<number, string> = {
   10: 'rgba(217, 70, 239, 0.15)', // AUTO_LAND
 };
 
-// 顏色調色盤，供多通道 RC 顯示
 const MULTI_CHANNEL_COLORS = [
   '#ef4444', '#10b981', '#fb923c', '#3b82f6',
   '#a78bfa', '#f43f5e', '#06b6d4', '#eab308',
@@ -55,21 +54,21 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<StickTab>('setpoint');
   
-  // 檢查各項數據是否存在於 ULog 中
   const [hasSetpoint, setHasSetpoint] = useState(false);
   const [hasRcChannels, setHasRcChannels] = useState(false);
   const [hasInputRc, setHasInputRc] = useState(false);
 
-  // 模式轉移與解鎖狀態
   const [transitions, setTransitions] = useState<ModeTransition[]>([]);
   const [currentModeStr, setCurrentModeStr] = useState<string>('UNKNOWN');
   const [currentArmStr, setCurrentArmStr] = useState<string>('DISARMED');
   
-  // 安全警報與 failsafe 狀態
   const [hasFailsafe, setHasFailsafe] = useState<boolean>(false);
   const [failsafeLogs, setFailsafeLogs] = useState<{ timeS: number; msg: string }[]>([]);
 
-  // 1. 自動檢查實際存在的 Topic 與 Fields，平行加載全部可用的遙控/控制數據
+  // 1. 本地 uPlot 橫向縮放與游標同步對象
+  const statusSync = useMemo(() => uPlot.sync('status-panel-sync'), []);
+
+  // 自動檢查實際存在的 Topic 與 Fields
   useEffect(() => {
     if (!state.summary) return;
     const topics = state.summary.topics;
@@ -82,7 +81,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     setHasRcChannels(rcChExist);
     setHasInputRc(inputRcExist);
 
-    // 決定預設的 Tab
     if (spExist) {
       setActiveTab('setpoint');
     } else if (rcChExist) {
@@ -94,7 +92,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     const statusTopic = topics.find(t => t.name === 'vehicle_status');
     if (!statusTopic) return;
 
-    // 過濾真正存在的 status 欄位
     const statusFields = ['nav_state', 'arming_state', 'failsafe', 'rc_signal_lost']
       .filter(f => statusTopic.fields.includes(f));
 
@@ -125,6 +122,29 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
     }
     setIsDataLoaded(loaded);
   }, [state.summary, state.topicCache, requestTopicData]);
+
+  // 滾輪縮放註冊輔助器
+  const registerWheelZoom = useCallback((plot: uPlot) => {
+    plot.over.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      const minX = plot.scales.x.min!;
+      const maxX = plot.scales.x.max!;
+      const range = maxX - minX;
+      const rect = plot.over.getBoundingClientRect();
+      const mousePct = (e.clientX - rect.left) / rect.width;
+      const mouseVal = minX + mousePct * range;
+      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+      const newRange = range * zoomFactor;
+      const newMin = mouseVal - mousePct * newRange;
+      const newMax = newMin + newRange;
+      const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+
+      plot.setScale('x', {
+        min: Math.max(0, newMin),
+        max: Math.min(logEnd, newMax),
+      });
+    });
+  }, [state.summary]);
 
   // 2. 模式變更事件解析
   const parseTransitions = useCallback(() => {
@@ -298,7 +318,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             });
           }
         } else if (activeTab === 'input_rc') {
-          // input_rc:0 繪製全部的 raw value (e.g. values[0..15])
           const valueFields = Object.keys(stickCache.fields)
             .filter(k => k.startsWith('values['))
             .sort((a,b) => {
@@ -308,7 +327,6 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             });
           
           if (valueFields.length > 0) {
-            // raw PWM 通常落在 800 ~ 2200 之間，我們直接以數值繪製
             yMin = 850;
             yMax = 2150;
             valueFields.forEach((f, idx) => {
@@ -343,6 +361,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
               }
             ],
             series: seriesOpts,
+            cursor: { sync: { key: statusSync.key } },
             hooks: {
               drawAxes: [
                 (u: uPlot) => {
@@ -362,7 +381,9 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
               ]
             }
           };
-          stickChartRef.current = new uPlot(opts, uPlotData, stickContainerRef.current);
+          const plot = new uPlot(opts, uPlotData, stickContainerRef.current);
+          registerWheelZoom(plot);
+          stickChartRef.current = plot;
         }
       }
     }
@@ -385,7 +406,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
         for (let i = 0; i < n; i++) {
           xsSec[i] = (statusCache.timestamps[i] - startLogUs) / 1e6;
           navValues[i] = Number(nav[i]);
-          armBinary[i] = Number(arm[i]) === 2 ? 1 : 0; // 2 = ARMED
+          armBinary[i] = Number(arm[i]) === 2 ? 1 : 0;
         }
 
         const uPlotData: uPlot.AlignedData = [xsSec, navValues, armBinary];
@@ -437,6 +458,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
               points: { show: false }
             } as any
           ],
+          cursor: { sync: { key: statusSync.key } },
           hooks: {
             drawAxes: [
               (u: uPlot) => {
@@ -447,8 +469,8 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
                   u.ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
                   u.ctx.setLineDash([3, 3]);
                   u.ctx.beginPath();
-                  u.ctx.moveTo(cx, u.bbox.top);
-                  u.ctx.lineTo(cx, u.bbox.top + u.bbox.height);
+                  u.ctx.moveTo(cx, u.ctx.canvas.height);
+                  u.ctx.lineTo(cx, 0);
                   u.ctx.stroke();
                   u.ctx.restore();
                 }
@@ -456,7 +478,9 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             ]
           }
         };
-        modeChartRef.current = new uPlot(opts, uPlotData, modeContainerRef.current);
+        const plot = new uPlot(opts, uPlotData, modeContainerRef.current);
+        registerWheelZoom(plot);
+        modeChartRef.current = plot;
       }
     }
 
@@ -502,6 +526,7 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             { stroke: '#64748b', font: '10px JetBrains Mono, monospace', side: 3, values: (u, vals) => vals.map(v => v === 1 ? 'True' : 'False') }
           ],
           series: seriesOpts,
+          cursor: { sync: { key: statusSync.key } },
           hooks: {
             drawAxes: [
               (u: uPlot) => {
@@ -521,10 +546,12 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
             ]
           }
         };
-        failsafeChartRef.current = new uPlot(opts, uPlotData, failsafeContainerRef.current);
+        const plot = new uPlot(opts, uPlotData, failsafeContainerRef.current);
+        registerWheelZoom(plot);
+        failsafeChartRef.current = plot;
       }
     }
-  }, [isDataLoaded, activeTab, hasSetpoint, hasRcChannels, hasInputRc, state.topicCache, state.summary, transitions, currentTimeUs]);
+  }, [isDataLoaded, activeTab, hasSetpoint, hasRcChannels, hasInputRc, state.topicCache, state.summary, transitions, currentTimeUs, statusSync, registerWheelZoom]);
 
   useEffect(() => {
     renderCharts();
@@ -595,28 +622,27 @@ export function StatusModePanel({ panelId, currentTimeUs }: StatusModePanelProps
                 🎮 {state.language === 'en' ? 'Pilot Stick / RC inputs' : '遙控搖桿與 RC 輸入信號'}
               </span>
               
-              {/* 搖桿信號切換 Tabs */}
               <div className={styles.stickTabs}>
                 <button
                   className={`${styles.stickTabBtn} ${activeTab === 'setpoint' ? styles.stickTabBtnActive : ''} ${!hasSetpoint ? styles.stickTabBtnDisabled : ''}`}
                   disabled={!hasSetpoint}
                   onClick={() => setActiveTab('setpoint')}
                 >
-                  Setpoint (期望值)
+                  Setpoint
                 </button>
                 <button
                   className={`${styles.stickTabBtn} ${activeTab === 'rc_channels' ? styles.stickTabBtnActive : ''} ${!hasRcChannels ? styles.stickTabBtnDisabled : ''}`}
                   disabled={!hasRcChannels}
                   onClick={() => setActiveTab('rc_channels')}
                 >
-                  RC Channels (歸一化)
+                  RC Channels
                 </button>
                 <button
                   className={`${styles.stickTabBtn} ${activeTab === 'input_rc' ? styles.stickTabBtnActive : ''} ${!hasInputRc ? styles.stickTabBtnDisabled : ''}`}
                   disabled={!hasInputRc}
                   onClick={() => setActiveTab('input_rc')}
                 >
-                  Raw RC (PWM us)
+                  Raw RC (PWM)
                 </button>
               </div>
             </div>

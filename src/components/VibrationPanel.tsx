@@ -96,7 +96,22 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
             { label: `${sensorType.toUpperCase()} Z`, stroke: '#3b82f6', width: 1.5, points: { show: false } }
           ]
         };
-        chartRef.current = new uPlot(opts, uPlotData, containerRef.current);
+        const plot = new uPlot(opts, uPlotData, containerRef.current);
+        plot.over.addEventListener('wheel', (e: WheelEvent) => {
+          e.preventDefault();
+          const minX = plot.scales.x.min!;
+          const maxX = plot.scales.x.max!;
+          const range = maxX - minX;
+          const rect = plot.over.getBoundingClientRect();
+          const mousePct = (e.clientX - rect.left) / rect.width;
+          const mouseVal = minX + mousePct * range;
+          const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+          const newRange = range * zoomFactor;
+          const newMin = mouseVal - mousePct * newRange;
+          const newMax = newMin + newRange;
+          plot.setScale('x', { min: Math.max(0, newMin), max: newMax });
+        });
+        chartRef.current = plot;
       }
       return;
     }
@@ -179,7 +194,22 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
           ]
         };
 
-        chartRef.current = new uPlot(opts, uPlotData, containerRef.current);
+        const plot = new uPlot(opts, uPlotData, containerRef.current);
+        plot.over.addEventListener('wheel', (e: WheelEvent) => {
+          e.preventDefault();
+          const minX = plot.scales.x.min!;
+          const maxX = plot.scales.x.max!;
+          const range = maxX - minX;
+          const rect = plot.over.getBoundingClientRect();
+          const mousePct = (e.clientX - rect.left) / rect.width;
+          const mouseVal = minX + mousePct * range;
+          const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+          const newRange = range * zoomFactor;
+          const newMin = mouseVal - mousePct * newRange;
+          const newMax = newMin + newRange;
+          plot.setScale('x', { min: Math.max(0, newMin), max: newMax });
+        });
+        chartRef.current = plot;
       }
 
     } catch (err) {

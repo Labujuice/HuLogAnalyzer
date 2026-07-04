@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useApp } from '../store/appStore';
@@ -81,7 +81,6 @@ function extractStepResponses(
   const n = timestamps.length;
   if (n < 10) return steps;
 
-  // 根據迴圈類型設定階躍變化閾值
   let threshold = 0.08;
   if (loopType === 'rate') threshold = 0.15; // rad/s
   if (loopType === 'attitude') threshold = 3.0; // deg
@@ -90,14 +89,12 @@ function extractStepResponses(
 
   const windowSec = loopType === 'position' || loopType === 'velocity' ? 1.5 : 0.8;
 
-  // 掃描期望值突變點
   let lastStepIdx = -100;
   for (let i = 2; i < n - 10; i++) {
     const diff = setpoint[i] - setpoint[i - 1];
     const dt = (timestamps[i] - timestamps[i - 1]) / 1e6;
-    if (dt <= 0 || dt > 1.0) continue; // 排除斷點
+    if (dt <= 0 || dt > 1.0) continue;
 
-    // 檢測階躍邊緣且相距足夠寬度
     if (Math.abs(diff) > threshold && (i - lastStepIdx) > (windowSec * 30)) {
       const startUs = timestamps[i - 1];
       const yStart = setpoint[i - 1];
@@ -109,10 +106,9 @@ function extractStepResponses(
       const tStep: number[] = [];
       const yStep: number[] = [];
       
-      let j = i - 2; // 預留一點階躍前的基準
+      let j = i - 2;
       while (j < n && (timestamps[j] - startUs) / 1e6 < windowSec) {
         const relSec = (timestamps[j] - startUs) / 1e6;
-        // 正規化: 將期望振幅歸一化到 1.0
         const valNorm = (actual[j] - yStart) / stepSize;
         tStep.push(relSec);
         yStep.push(valNorm);
@@ -141,6 +137,9 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
   const [isCalculating, setIsCalculating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 1. 本地 uPlot 橫向縮放與游標同步對象
+  const pidSync = useMemo(() => uPlot.sync('pid-panel-sync'), []);
+
   // 緩存結構
   const pidCacheRef = useRef<Map<string, {
     timestamps: Float64Array;
@@ -158,7 +157,6 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
 
   const autoCalcTimeoutRef = useRef<any>(null);
 
-  // 運算結果指標狀態
   const [metrics, setMetrics] = useState<{
     rmse: number;
     corr: number;
@@ -169,14 +167,12 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     hasSteps: boolean;
   } | null>(null);
 
-  // 切換 Loop 時，重設對應的 Axis
   useEffect(() => {
     const config = LOOP_CONFIGS[activeLoop];
     setActiveAxis(config.axes[0].id);
     setMetrics(null);
   }, [activeLoop]);
 
-  // 確認 Topic 是否存在於 Summary
   const checkTopicsExist = useCallback((loop: LoopType) => {
     if (!state.summary) return false;
     const config = LOOP_CONFIGS[loop];
@@ -185,7 +181,30 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     return hasSetpoint && hasActual;
   }, [state.summary]);
 
-  // 繪製 Step Response 的內部函數
+  // 滾輪縮放註冊輔助器
+  const registerWheelZoom = useCallback((plot: uPlot) => {
+    plot.over.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      const minX = plot.scales.x.min!;
+      const maxX = plot.scales.x.max!;
+      const range = maxX - minX;
+      const rect = plot.over.getBoundingClientRect();
+      const mousePct = (e.clientX - rect.left) / rect.width;
+      const mouseVal = minX + mousePct * range;
+      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+      const newRange = range * zoomFactor;
+      const newMin = mouseVal - mousePct * newRange;
+      const newMax = newMin + newRange;
+      const logEnd = (state.summary?.durationUs ?? 0) / 1e6;
+
+      plot.setScale('x', {
+        min: Math.max(0, newMin),
+        max: Math.min(logEnd, newMax),
+      });
+    });
+  }, [state.summary]);
+
+  // 繪製 Step Response
   const drawStepChart = useCallback((steps: { t: number[]; y: number[] }[], axisLabel: string) => {
     if (!stepContainerRef.current) return;
     stepChartRef.current?.destroy();
@@ -194,7 +213,6 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     const windowSec = activeLoop === 'position' || activeLoop === 'velocity' ? 1.5 : 0.8;
     const numPoints = 50;
     
-    // 標準化相對秒數時間軸
     const stdTimeline = new Float64Array(numPoints);
     for (let i = 0; i < numPoints; i++) {
       stdTimeline[i] = (i / (numPoints - 1)) * windowSec;
@@ -205,7 +223,6 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
       return interpolateSeries(new Float64Array(s.t), new Float32Array(s.y), stdTimeline);
     });
 
-    // 計算平均響應曲線
     const avgLine = new Float32Array(numPoints);
     for (let i = 0; i < numPoints; i++) {
       let sum = 0;
@@ -264,13 +281,25 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         }
       ],
       series: seriesOpts,
-      legend: { show: false } // 隱藏多條微弱階躍曲線圖例以維繫美感
+      legend: { show: false }
     };
 
-    stepChartRef.current = new uPlot(opts, uPlotData, stepContainerRef.current);
+    const plot = new uPlot(opts, uPlotData, stepContainerRef.current);
+    // 註冊滾輪縮放（在階躍時間軸縮放）
+    plot.over.addEventListener('wheel', (ev) => {
+      ev.preventDefault();
+      const minX = plot.scales.x.min!;
+      const maxX = plot.scales.x.max!;
+      const range = maxX - minX;
+      const zoomFactor = ev.deltaY < 0 ? 0.85 : 1.15;
+      const newRange = range * zoomFactor;
+      plot.setScale('x', { min: 0, max: Math.min(windowSec, newRange) });
+    });
+
+    stepChartRef.current = plot;
   }, [activeLoop]);
 
-  // 核心對齊與運算繪圖
+  // 核心解算
   const handleCalculatePID = useCallback(async () => {
     if (!state.summary) return;
     
@@ -323,6 +352,11 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
             { label: `Setpoint`, stroke: '#10b981', width: 1.5, dash: [4, 4], points: { show: false } },
             { label: `Feedback`, stroke: '#ef4444', width: 1.5, points: { show: false } }
           ],
+          cursor: {
+            sync: {
+              key: pidSync.key
+            }
+          },
           hooks: {
             drawAxes: [
               (u: uPlot) => {
@@ -343,10 +377,11 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
             ]
           }
         };
-        chartRef.current = new uPlot(opts, uPlotData, containerRef.current);
+        const plot = new uPlot(opts, uPlotData, containerRef.current);
+        registerWheelZoom(plot);
+        chartRef.current = plot;
       }
 
-      // B. 繪製階躍響應
       drawStepChart(cached.stepResponses, axisConfig.label);
       return;
     }
@@ -372,10 +407,8 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
       const setpoint = result.setpointAligned;
       const actual = result.actualAligned;
 
-      // 提取階躍響應
       const stepResponses = extractStepResponses(timestamps, setpoint, actual, activeLoop);
 
-      // 計算評分等級
       let rating = 'Poor (欠佳)';
       let ratingColor = '#ef4444';
       if (result.corr >= 0.95 && Math.abs(result.lagUs) < 40000) {
@@ -399,7 +432,6 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         hasSteps: stepResponses.length > 0
       });
 
-      // 快取
       pidCacheRef.current.set(cacheKey, {
         timestamps,
         setpointAligned: setpoint,
@@ -414,7 +446,6 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         stepResponses
       });
 
-      // 繪製頂部 uPlot
       if (containerRef.current) {
         chartRef.current?.destroy();
         chartRef.current = null;
@@ -454,6 +485,11 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
               points: { show: false }
             }
           ],
+          cursor: {
+            sync: {
+              key: pidSync.key
+            }
+          },
           hooks: {
             drawAxes: [
               (u: uPlot) => {
@@ -477,10 +513,11 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
           }
         };
 
-        chartRef.current = new uPlot(opts, uPlotData, containerRef.current);
+        const plot = new uPlot(opts, uPlotData, containerRef.current);
+        registerWheelZoom(plot);
+        chartRef.current = plot;
       }
 
-      // 繪製底部階躍
       drawStepChart(stepResponses, axisConfig.label);
 
     } catch (err) {
@@ -488,7 +525,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     } finally {
       setIsCalculating(false);
     }
-  }, [state.summary, activeLoop, activeAxis, state.playback.startTimeUs, state.playback.endTimeUs, currentTimeUs, drawStepChart]);
+  }, [state.summary, activeLoop, activeAxis, state.playback.startTimeUs, state.playback.endTimeUs, currentTimeUs, drawStepChart, pidSync, registerWheelZoom]);
 
   // 當選擇改變時，清理圖表
   useEffect(() => {
@@ -508,7 +545,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
 
     autoCalcTimeoutRef.current = setTimeout(() => {
       handleCalculatePID();
-    }, 300); // 300ms 防抖
+    }, 300);
 
     return () => {
       if (autoCalcTimeoutRef.current) {
@@ -517,7 +554,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     };
   }, [activeLoop, activeAxis, state.playback.startTimeUs, state.playback.endTimeUs, handleCalculatePID]);
 
-  // 當播放時間線更新時，只重繪垂直播放線，不重新計算數據
+  // 當播放時間線更新時重繪
   useEffect(() => {
     if (chartRef.current) {
       chartRef.current.redraw(false);
