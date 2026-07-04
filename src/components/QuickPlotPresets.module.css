@@ -1,0 +1,140 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--clr-bg-surface);
+  box-sizing: border-box;
+}
+
+.header {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--clr-border);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--clr-text-accent);
+  text-transform: uppercase;
+}
+
+.subtitle {
+  font-size: 10px;
+  color: var(--clr-text-muted);
+}
+
+.listArea {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-2) 0;
+}
+
+.categoryGroup {
+  margin-bottom: 4px;
+}
+
+.categoryRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px var(--sp-3);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.categoryRow:hover {
+  background: var(--clr-bg-hover);
+}
+
+.arrow {
+  font-size: 8px;
+  color: var(--clr-text-muted);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
+}
+
+.categoryName {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--clr-text-primary);
+}
+
+.childrenList {
+  padding-left: var(--sp-4);
+  border-left: 1px solid var(--clr-border);
+  margin-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.presetItem {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 5px var(--sp-2);
+  border-radius: var(--radius-sm);
+  cursor: grab;
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+
+.presetItem:hover {
+  background: var(--clr-bg-hover);
+}
+
+.presetItem:active {
+  cursor: grabbing;
+}
+
+.dragDot {
+  color: var(--clr-text-muted);
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.itemLabel {
+  font-size: 11px;
+  color: var(--clr-text-secondary);
+}
+
+.uploadBtnRow {
+  padding: 6px 0;
+}
+
+.uploadError {
+  background-color: rgba(239, 68, 68, 0.15);
+  border: 1px dashed #ef4444;
+  color: #f87171;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin: 4px var(--sp-2) 4px 0;
+}
+
+.emptyHint {
+  font-size: 10px;
+  color: var(--clr-text-muted);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.customBadge {
+  background-color: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  font-weight: 500;
+}

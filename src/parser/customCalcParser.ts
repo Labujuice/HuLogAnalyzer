@@ -330,8 +330,8 @@ export function executeCustomCalculation(
     };
   };
 
-  let lastOutputTimestamps = new Float64Array(0);
-  let lastOutputData = new Float32Array(0);
+  let lastOutputTimestamps: any = new Float64Array(0);
+  let lastOutputData: any = new Float32Array(0);
 
   for (const op of config.operations) {
     switch (op.type) {

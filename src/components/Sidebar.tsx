@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { useApp } from '../store/appStore';
 import { CHART_COLORS } from '../types/ulog';
 import type { ChartSeries } from '../types/ulog';
+import { QuickPlotPresets } from './QuickPlotPresets';
 import styles from './Sidebar.module.css';
 
 type SidebarTab = 'topics' | 'info' | 'messages';
@@ -30,7 +31,16 @@ export function Sidebar({ width }: { width?: number }) {
       </div>
 
       <div className={styles.tabContent}>
-        {activeTab === 'topics' && <TopicTree />}
+        {activeTab === 'topics' && (
+          <div className={styles.topicsSplitWrapper}>
+            <div className={styles.topicsTreeSection}>
+              <TopicTree />
+            </div>
+            <div className={styles.presetsSection}>
+              <QuickPlotPresets />
+            </div>
+          </div>
+        )}
         {activeTab === 'info' && <MetadataPanel />}
         {activeTab === 'messages' && <LogMessages />}
       </div>

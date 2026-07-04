@@ -8,6 +8,13 @@ import { timePublisher } from '../store/timePublisher';
 import { Attitude3dPanel } from './Attitude3dPanel';
 import { AhrsPanel } from './AhrsPanel';
 import { MapPanel } from './MapPanel';
+import { VibrationPanel } from './VibrationPanel';
+import { PidResponsePanel } from './PidResponsePanel';
+import { MotorStatusPanel } from './MotorStatusPanel';
+import { MagneticPanel } from './MagneticPanel';
+import { StatusModePanel } from './StatusModePanel';
+import { customCalcRegistry } from '../parser/customCalcRegistry';
+import { getWorkerBridge } from '../workers/workerBridge';
 import styles from './ChartPanel.module.css';
 
 interface ChartPanelProps {
@@ -442,20 +449,68 @@ export function ChartPanel({
 
   // ─── 拖曳接收 ───────────────────────────────────────────────────────────────
   const onDragOver = (e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('application/ulog-series')) {
+    if (
+      e.dataTransfer.types.includes('application/ulog-series') ||
+      e.dataTransfer.types.includes('application/ulog-preset')
+    ) {
       e.preventDefault();
       setIsDragTarget(true);
     }
   };
   const onDragLeave = () => setIsDragTarget(false);
-  const onDrop = (e: React.DragEvent) => {
+  const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragTarget(false);
-    try {
-      const raw = e.dataTransfer.getData('application/ulog-series');
-      const items: ChartSeries[] = JSON.parse(raw);
-      items.forEach(s => onAddSeries?.(s));
-    } catch {}
+
+    if (e.dataTransfer.types.includes('application/ulog-preset')) {
+      try {
+        const raw = e.dataTransfer.getData('application/ulog-preset');
+        const preset = JSON.parse(raw);
+        if (preset.type === 'custom_calc') {
+          const config = customCalcRegistry.get(preset.configId);
+          if (config) {
+            // 先加進線條清單中
+            const series: ChartSeries = {
+              topicName: 'custom_calc',
+              multiId: 0,
+              fieldName: config.id,
+              label: config.name,
+              color: config.targetChart.color || '#fbbf24'
+            };
+            onAddSeries?.(series);
+
+            // 觸發背景 Web Worker 計算
+            try {
+              const res = await getWorkerBridge().runCustomCalc(config);
+              dispatch({
+                type: 'TOPIC_DATA_LOADED',
+                key: 'custom_calc:0',
+                data: {
+                  topicName: 'custom_calc',
+                  multiId: 0,
+                  timestamps: res.timestamps,
+                  fields: { [config.id]: res.values },
+                  count: res.timestamps.length
+                }
+              });
+            } catch (err) {
+              console.error('Custom calculation execution failed:', err);
+            }
+          }
+        } else {
+          // 一般快捷面版，切換 panel 類型
+          dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: preset.type });
+        }
+      } catch (err) {
+        console.error('Preset drop failed:', err);
+      }
+    } else {
+      try {
+        const raw = e.dataTransfer.getData('application/ulog-series');
+        const items: ChartSeries[] = JSON.parse(raw);
+        items.forEach(s => onAddSeries?.(s));
+      } catch {}
+    }
   };
 
   const hasSeries = panel.series.length > 0;
@@ -607,6 +662,36 @@ export function ChartPanel({
         </div>
       )}
 
+      {panel.type === 'vibration' && (
+        <div className={styles.fullInner}>
+          <VibrationPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'pid_tracking' && (
+        <div className={styles.fullInner}>
+          <PidResponsePanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'motor_balance' && (
+        <div className={styles.fullInner}>
+          <MotorStatusPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'magnetic_analysis' && (
+        <div className={styles.fullInner}>
+          <MagneticPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'status_mode' && (
+        <div className={styles.fullInner}>
+          <StatusModePanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
       {panel.type === 'empty' && (
         <div className={styles.emptyChoice}>
           <div className={styles.choiceTitle}>
@@ -636,6 +721,36 @@ export function ChartPanel({
               onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'map' })}
             >
               {state.language === 'en' ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡'}
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'vibration' })}
+            >
+              {state.language === 'en' ? '📈 Vibration FFT' : '📈 振動量分析'}
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'pid_tracking' })}
+            >
+              {state.language === 'en' ? '🎯 PID Tracking' : '🎯 控制器追隨響應'}
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'motor_balance' })}
+            >
+              {state.language === 'en' ? '⚡ Motor Balance' : '⚡ 馬達動力平衡'}
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'magnetic_analysis' })}
+            >
+              {state.language === 'en' ? '🧲 Magnetic & Heading' : '🧲 磁力與航向'}
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'status_mode' })}
+            >
+              {state.language === 'en' ? '🎛️ Status & Mode' : '🎛️ 飛行狀態與模式'}
             </button>
           </div>
         </div>

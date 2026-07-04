@@ -294,8 +294,8 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         return;
       }
       try {
-        let ySetRaw: Float32Array | Float64Array | Int32Array | null = null;
-        let yActRaw: Float32Array | Float64Array | Int32Array | null = null;
+        let ySetRaw: any = null;
+        let yActRaw: any = null;
         let tSetRaw: Float64Array | null = null;
         let tActRaw: Float64Array | null = null;
 
@@ -356,9 +356,9 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         // 第二遍：根據滯後平移時間戳，重新插值對齊 setpoint 達到相位補償
         let ySetFinal = ySetAligned;
         if (Math.abs(lagUs) > 0) {
-          const tShifted = new Float64Array(setpointData.timestamps.length);
-          for (let i = 0; i < setpointData.timestamps.length; i++) {
-            tShifted[i] = setpointData.timestamps[i] - lagUs;
+          const tShifted = new Float64Array(tSetRaw.length);
+          for (let i = 0; i < tSetRaw.length; i++) {
+            tShifted[i] = tSetRaw[i] - lagUs;
           }
           ySetFinal = interpolateSeries(tShifted, ySetRaw, tRef);
         }
