@@ -6,10 +6,72 @@
  */
 
 import { ULogParser } from '../parser/ULogParser';
-import { lttbDownsample, getLttbIndices } from '../parser/utils';
+import { lttbDownsample, getLttbIndices, sliceByTimeRange, quatToEuler } from '../parser/utils';
+import { computeFFTAmplitude } from '../parser/fft';
+import { computeRMSE, computeCorrelation, detectLagUs, interpolateSeries } from '../parser/mathUtils';
+import { executeCustomCalculation } from '../parser/customCalcParser';
 import type { WorkerRequest, WorkerResponse } from '../types/ulog';
 
 let parser: ULogParser | null = null;
+
+function getEulerField(
+  parserObj: ULogParser,
+  topicName: string,
+  axis: 'roll' | 'pitch' | 'yaw'
+): { timestamps: Float64Array; values: Float32Array } | null {
+  const topicData = parserObj.getTopicData(topicName, 0);
+  if (!topicData) return null;
+
+  const isSetpoint = topicName === 'vehicle_attitude_setpoint';
+  const n = topicData.count;
+  const values = new Float32Array(n);
+
+  if (isSetpoint) {
+    // 優先讀取 roll_body, pitch_body, yaw_body (如果有)
+    const rollBody = topicData.fields['roll_body'];
+    const pitchBody = topicData.fields['pitch_body'];
+    const yawBody = topicData.fields['yaw_body'];
+
+    if (rollBody && pitchBody && yawBody) {
+      if (axis === 'roll') return { timestamps: topicData.timestamps, values: rollBody instanceof Float32Array ? rollBody : new Float32Array(rollBody) };
+      if (axis === 'pitch') return { timestamps: topicData.timestamps, values: pitchBody instanceof Float32Array ? pitchBody : new Float32Array(pitchBody) };
+      if (axis === 'yaw') return { timestamps: topicData.timestamps, values: yawBody instanceof Float32Array ? yawBody : new Float32Array(yawBody) };
+    }
+
+    // 否則讀取 q_d[0..3]
+    const q0 = topicData.fields['q_d[0]'];
+    const q1 = topicData.fields['q_d[1]'];
+    const q2 = topicData.fields['q_d[2]'];
+    const q3 = topicData.fields['q_d[3]'];
+
+    if (q0 && q1 && q2 && q3) {
+      for (let i = 0; i < n; i++) {
+        const euler = quatToEuler(q0[i], q1[i], q2[i], q3[i]); // [roll, pitch, yaw] 弧度
+        if (axis === 'roll') values[i] = (euler[0] * 180) / Math.PI;
+        else if (axis === 'pitch') values[i] = (euler[1] * 180) / Math.PI;
+        else if (axis === 'yaw') values[i] = (euler[2] * 180) / Math.PI;
+      }
+      return { timestamps: topicData.timestamps, values };
+    }
+  } else {
+    // 讀取 q[0..3]
+    const q0 = topicData.fields['q[0]'];
+    const q1 = topicData.fields['q[1]'];
+    const q2 = topicData.fields['q[2]'];
+    const q3 = topicData.fields['q[3]'];
+
+    if (q0 && q1 && q2 && q3) {
+      for (let i = 0; i < n; i++) {
+        const euler = quatToEuler(q0[i], q1[i], q2[i], q3[i]); // [roll, pitch, yaw] 弧度
+        if (axis === 'roll') values[i] = (euler[0] * 180) / Math.PI;
+        else if (axis === 'pitch') values[i] = (euler[1] * 180) / Math.PI;
+        else if (axis === 'yaw') values[i] = (euler[2] * 180) / Math.PI;
+      }
+      return { timestamps: topicData.timestamps, values };
+    }
+  }
+  return null;
+}
 
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
   const req = e.data;
@@ -166,6 +228,201 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           message: err instanceof Error ? err.message : String(err),
         };
         self.postMessage(errResp);
+      }
+      break;
+    }
+
+    case 'COMPUTE_FFT': {
+      if (!parser) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '尚未解析 any ULog 檔案。' });
+        return;
+      }
+      try {
+        const topicData = parser.getTopicData(req.topicName, req.multiId, [req.fieldName]);
+        if (!topicData) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: `找不到 Topic: ${req.topicName}` });
+          return;
+        }
+
+        const timestamps = topicData.timestamps;
+        const values = topicData.fields[req.fieldName];
+        if (!values) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: `在 Topic ${req.topicName} 中找不到欄位: ${req.fieldName}` });
+          return;
+        }
+
+        // 根據時間範圍 Slice
+        const [startIdx, endIdx] = sliceByTimeRange(timestamps, req.timeStartUs, req.timeEndUs);
+        const subTimestamps = timestamps.subarray(startIdx, endIdx);
+        const subValues = values.subarray(startIdx, endIdx);
+
+        if (subValues.length < 8) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '所選時間區間內的數據點數不足，無法計算 FFT。' });
+          return;
+        }
+
+        // 計算採樣頻率
+        const n = subTimestamps.length;
+        const dtSec = (subTimestamps[n - 1] - subTimestamps[0]) / (n - 1) / 1e6;
+        const fs = 1.0 / dtSec;
+
+        const { frequencies, amplitudes } = computeFFTAmplitude(
+          subValues instanceof Float32Array ? subValues : new Float32Array(subValues),
+          fs
+        );
+
+        const resp: WorkerResponse = {
+          type: 'FFT_COMPLETE',
+          requestId: req.requestId,
+          topicName: req.topicName,
+          fieldName: req.fieldName,
+          frequencies,
+          amplitudes
+        };
+
+        // Zero-copy transfer
+        (self as unknown as Worker).postMessage(resp, [frequencies.buffer as ArrayBuffer, amplitudes.buffer as ArrayBuffer]);
+      } catch (err) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
+      }
+      break;
+    }
+
+    case 'ALIGN_PID_DATA': {
+      if (!parser) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '尚未解析 any ULog 檔案。' });
+        return;
+      }
+      try {
+        let ySetRaw: any = null;
+        let yActRaw: any = null;
+        let tSetRaw: Float64Array | null = null;
+        let tActRaw: Float64Array | null = null;
+
+        if (req.setpointField.endsWith('_euler')) {
+          const axis = req.setpointField.replace('_euler', '') as 'roll' | 'pitch' | 'yaw';
+          const euler = getEulerField(parser, req.setpointTopic, axis);
+          if (euler) {
+            ySetRaw = euler.values;
+            tSetRaw = euler.timestamps;
+          }
+        } else {
+          const setpointData = parser.getTopicData(req.setpointTopic, 0, [req.setpointField]);
+          if (setpointData) {
+            ySetRaw = setpointData.fields[req.setpointField];
+            tSetRaw = setpointData.timestamps;
+          }
+        }
+
+        if (req.actualField.endsWith('_euler')) {
+          const axis = req.actualField.replace('_euler', '') as 'roll' | 'pitch' | 'yaw';
+          const euler = getEulerField(parser, req.actualTopic, axis);
+          if (euler) {
+            yActRaw = euler.values;
+            tActRaw = euler.timestamps;
+          }
+        } else {
+          const actualData = parser.getTopicData(req.actualTopic, 0, [req.actualField]);
+          if (actualData) {
+            yActRaw = actualData.fields[req.actualField];
+            tActRaw = actualData.timestamps;
+          }
+        }
+
+        if (!ySetRaw || !yActRaw || !tSetRaw || !tActRaw) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '找不到對應的 PID Topic 或是欄位數據，請確認日誌欄位完整性。' });
+          return;
+        }
+
+        // 1. 先對 actual 數據做時間範圍 Slice（以實測實際值為基準時間軸）
+        const [startIdxAct, endIdxAct] = sliceByTimeRange(tActRaw, req.timeStartUs, req.timeEndUs);
+        const tRef = tActRaw.subarray(startIdxAct, endIdxAct);
+        const yAct = yActRaw.subarray(startIdxAct, endIdxAct) instanceof Float32Array 
+          ? (yActRaw.subarray(startIdxAct, endIdxAct) as Float32Array)
+          : new Float32Array(yActRaw.subarray(startIdxAct, endIdxAct));
+
+        if (tRef.length < 5) {
+          self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '所選時間區間內數據點過少，無法對齊 PID' });
+          return;
+        }
+
+        // 2. 對 setpoint 進行對齊與延遲偵測
+        // 第一遍：將 setpoint 線性插值到基準時間軸 tRef
+        const ySetAligned = interpolateSeries(tSetRaw, ySetRaw, tRef);
+
+        // 偵測相位滯後
+        const lagUs = detectLagUs(yAct, ySetAligned, tRef);
+
+        // 第二遍：根據滯後平移時間戳，重新插值對齊 setpoint 達到相位補償
+        let ySetFinal = ySetAligned;
+        if (Math.abs(lagUs) > 0) {
+          const tShifted = new Float64Array(tSetRaw.length);
+          for (let i = 0; i < tSetRaw.length; i++) {
+            tShifted[i] = tSetRaw[i] - lagUs;
+          }
+          ySetFinal = interpolateSeries(tShifted, ySetRaw, tRef);
+        }
+
+        // 3. 計算 PID 指標
+        const rmse = computeRMSE(yAct, ySetFinal);
+        const corr = computeCorrelation(yAct, ySetFinal);
+
+        const resp: WorkerResponse = {
+          type: 'PID_DATA_ALIGNED',
+          requestId: req.requestId,
+          timestamps: tRef,
+          setpointAligned: ySetFinal,
+          actualAligned: yAct,
+          rmse,
+          corr,
+          lagUs
+        };
+
+        // Zero-copy transfer
+        (self as unknown as Worker).postMessage(resp, [
+          tRef.buffer as ArrayBuffer,
+          ySetFinal.buffer as ArrayBuffer,
+          yAct.buffer as ArrayBuffer
+        ]);
+      } catch (err) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
+      }
+      break;
+    }
+
+    case 'RUN_CUSTOM_CALC': {
+      if (!parser) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '尚未解析 any ULog 檔案。' });
+        return;
+      }
+      try {
+        const getRawData = (tName: string) => {
+          // 預設尋找 multiId 0
+          const topicInfo = parser!.getTopicData(tName, 0);
+          if (!topicInfo) return null;
+          return {
+            timestamps: topicInfo.timestamps,
+            fields: topicInfo.fields as Record<string, Float32Array>
+          };
+        };
+
+        const result = executeCustomCalculation(req.config, getRawData);
+
+        const resp: WorkerResponse = {
+          type: 'CUSTOM_CALC_COMPLETE',
+          requestId: req.requestId,
+          outputId: req.config.id,
+          timestamps: result.timestamps,
+          values: result.values
+        };
+
+        // Zero-copy transfer
+        (self as unknown as Worker).postMessage(resp, [
+          result.timestamps.buffer as ArrayBuffer,
+          result.values.buffer as ArrayBuffer
+        ]);
+      } catch (err) {
+        self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
       }
       break;
     }

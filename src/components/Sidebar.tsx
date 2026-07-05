@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useApp } from '../store/appStore';
 import { CHART_COLORS } from '../types/ulog';
 import type { ChartSeries } from '../types/ulog';
+import { QuickPlotPresets } from './QuickPlotPresets';
 import styles from './Sidebar.module.css';
 
 type SidebarTab = 'topics' | 'info' | 'messages';
@@ -9,6 +10,26 @@ type SidebarTab = 'topics' | 'info' | 'messages';
 export function Sidebar({ width }: { width?: number }) {
   const { state } = useApp();
   const [activeTab, setActiveTab] = useState<SidebarTab>('topics');
+  const splitWrapperRef = useRef<HTMLDivElement>(null);
+  const [treeHeight, setTreeHeight] = useState<number>(55); // 預設 55%
+
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (splitWrapperRef.current) {
+        const rect = splitWrapperRef.current.getBoundingClientRect();
+        const relativeY = moveEvent.clientY - rect.top;
+        const percentage = Math.max(15, Math.min(85, (relativeY / rect.height) * 100));
+        setTreeHeight(percentage);
+      }
+    };
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, []);
 
   return (
     <aside className={styles.root} style={width ? { width } : undefined}>
@@ -30,7 +51,17 @@ export function Sidebar({ width }: { width?: number }) {
       </div>
 
       <div className={styles.tabContent}>
-        {activeTab === 'topics' && <TopicTree />}
+        {activeTab === 'topics' && (
+          <div className={styles.topicsSplitWrapper} ref={splitWrapperRef}>
+            <div className={styles.topicsTreeSection} style={{ height: `${treeHeight}%`, flex: 'none' }}>
+              <TopicTree />
+            </div>
+            <div className={styles.resizer} onMouseDown={startResize} />
+            <div className={styles.presetsSection} style={{ height: `${100 - treeHeight}%`, flex: 'none' }}>
+              <QuickPlotPresets />
+            </div>
+          </div>
+        )}
         {activeTab === 'info' && <MetadataPanel />}
         {activeTab === 'messages' && <LogMessages />}
       </div>

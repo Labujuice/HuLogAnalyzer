@@ -8,6 +8,13 @@ import { timePublisher } from '../store/timePublisher';
 import { Attitude3dPanel } from './Attitude3dPanel';
 import { AhrsPanel } from './AhrsPanel';
 import { MapPanel } from './MapPanel';
+import { VibrationPanel } from './VibrationPanel';
+import { PidResponsePanel } from './PidResponsePanel';
+import { MotorStatusPanel } from './MotorStatusPanel';
+import { MagneticPanel } from './MagneticPanel';
+import { StatusModePanel } from './StatusModePanel';
+import { customCalcRegistry } from '../parser/customCalcRegistry';
+import { getWorkerBridge } from '../workers/workerBridge';
 import styles from './ChartPanel.module.css';
 
 interface ChartPanelProps {
@@ -442,20 +449,68 @@ export function ChartPanel({
 
   // ─── 拖曳接收 ───────────────────────────────────────────────────────────────
   const onDragOver = (e: React.DragEvent) => {
-    if (e.dataTransfer.types.includes('application/ulog-series')) {
+    if (
+      e.dataTransfer.types.includes('application/ulog-series') ||
+      e.dataTransfer.types.includes('application/ulog-preset')
+    ) {
       e.preventDefault();
       setIsDragTarget(true);
     }
   };
   const onDragLeave = () => setIsDragTarget(false);
-  const onDrop = (e: React.DragEvent) => {
+  const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragTarget(false);
-    try {
-      const raw = e.dataTransfer.getData('application/ulog-series');
-      const items: ChartSeries[] = JSON.parse(raw);
-      items.forEach(s => onAddSeries?.(s));
-    } catch {}
+
+    if (e.dataTransfer.types.includes('application/ulog-preset')) {
+      try {
+        const raw = e.dataTransfer.getData('application/ulog-preset');
+        const preset = JSON.parse(raw);
+        if (preset.type === 'custom_calc') {
+          const config = customCalcRegistry.get(preset.configId);
+          if (config) {
+            // 先加進線條清單中
+            const series: ChartSeries = {
+              topicName: 'custom_calc',
+              multiId: 0,
+              fieldName: config.id,
+              label: config.name,
+              color: config.targetChart.color || '#fbbf24'
+            };
+            onAddSeries?.(series);
+
+            // 觸發背景 Web Worker 計算
+            try {
+              const res = await getWorkerBridge().runCustomCalc(config);
+              dispatch({
+                type: 'TOPIC_DATA_LOADED',
+                key: 'custom_calc:0',
+                data: {
+                  topicName: 'custom_calc',
+                  multiId: 0,
+                  timestamps: res.timestamps,
+                  fields: { [config.id]: res.values },
+                  count: res.timestamps.length
+                }
+              });
+            } catch (err) {
+              console.error('Custom calculation execution failed:', err);
+            }
+          }
+        } else {
+          // 一般快捷面版，切換 panel 類型
+          dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: preset.type });
+        }
+      } catch (err) {
+        console.error('Preset drop failed:', err);
+      }
+    } else {
+      try {
+        const raw = e.dataTransfer.getData('application/ulog-series');
+        const items: ChartSeries[] = JSON.parse(raw);
+        items.forEach(s => onAddSeries?.(s));
+      } catch {}
+    }
   };
 
   const hasSeries = panel.series.length > 0;
@@ -607,37 +662,59 @@ export function ChartPanel({
         </div>
       )}
 
+      {panel.type === 'vibration' && (
+        <div className={styles.fullInner}>
+          <VibrationPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'pid_tracking' && (
+        <div className={styles.fullInner}>
+          <PidResponsePanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'motor_balance' && (
+        <div className={styles.fullInner}>
+          <MotorStatusPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'magnetic_analysis' && (
+        <div className={styles.fullInner}>
+          <MagneticPanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
+      {panel.type === 'status_mode' && (
+        <div className={styles.fullInner}>
+          <StatusModePanel panelId={panel.id} currentTimeUs={currentTimeUs} />
+        </div>
+      )}
+
       {panel.type === 'empty' && (
         <div className={styles.emptyChoice}>
-          <div className={styles.choiceTitle}>
-            {state.language === 'en' ? 'Select panel display content' : '選擇此區塊顯示的內容'}
+          <div className={styles.emptyPromptIcon} style={{ marginBottom: '8px' }}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}>
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+              <line x1="15" y1="3" x2="15" y2="21"/>
+              <line x1="3" y1="9" x2="21" y2="9"/>
+              <line x1="3" y1="15" x2="21" y2="15"/>
+            </svg>
           </div>
-          <div className={styles.choiceButtons}>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
-            >
-              {state.language === 'en' ? '📊 Data Chart' : '📊 數據圖表'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'attitude3d' })}
-            >
-              {state.language === 'en' ? '🛸 3D Attitude Viewer' : '🛸 3D 姿態觀測器'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'ahrs' })}
-            >
-              {state.language === 'en' ? '✈️ AHRS PFD HUD' : '✈️ AHRS 航空水平儀'}
-            </button>
-            <button
-              className="btn btn--primary"
-              onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'map' })}
-            >
-              {state.language === 'en' ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡'}
-            </button>
+          <div className={styles.choiceTitle} style={{ textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>
+            {state.language === 'en' 
+              ? 'Drag topic fields or toolbox presets here to display' 
+              : '請從左側拖曳數據欄位或快捷工具至此顯示'}
           </div>
+          <button
+            className="btn btn--secondary btn--small"
+            style={{ marginTop: '8px' }}
+            onClick={() => dispatch({ type: 'SET_PANEL_TYPE', panelId: panel.id, panelType: 'chart' })}
+          >
+            {state.language === 'en' ? '📊 Create Blank Chart' : '📊 建立空白圖表'}
+          </button>
         </div>
       )}
     </div>

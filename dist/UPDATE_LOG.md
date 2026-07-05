@@ -4,6 +4,27 @@
 
 ---
 
+## [Branch: 0705_plot_feature] (基於 `main` 分支 `d04f305` 節點切出)
+* **日期**：2026-07-05
+* **更新狀態**：已完成開發 / 準備合併
+* **更新項目明細**：
+  * **✈️ 飛行狀態與模式工具箱 (StatusModePanel)**：
+    * **飛行模式與解鎖狀態（獨立圖表）**：將 Flight Mode 與 Arming State 獨立出一個格子畫圖（`Flight Mode & Arming History`），採用階躍折線圖（Stepped Line）方式繪製，支援左右 Y 軸雙軸（左側為 Arm/Disarmed，右側為對應的 PX4 模式字串標籤如 POSCTL, ALTCTL, RTL...），時間軸與上方搖桿、下方 Failsafe 精確對齊。
+    * **遙控器操縱桿多模式快捷分頁**：在背景同時平行載入 `manual_control_setpoint`、`rc_channels` 與 `input_rc`（若存在於日誌中），並在操縱桿圖表右上角新增快捷分頁切換器 `[Setpoint]`、`[RC Channels]` 與 `[Raw RC]`，使用者可隨時點擊切換比對。
+    * **完整通道與 PWM 數值繪製**：切換至 `Raw RC (PWM us)` 分頁時，自動解析並繪製 `input_rc.values[0..n]` 的所有可用通道，並自動將 Y 軸範圍固定為與遙控信號相符的 `850 ~ 2150 us` 區間，展示完整的開關與微調旋鈕變化。
+    * **事件日誌（Mission Event Log）**：優化右側日誌輸出，顯示 Mode Transitions 與 Safety & Failsafe Events 狀態。
+  * **🧲 多磁力計同步模長與 EKF GSF 航向比對 (MagneticPanel)**：
+    * **磁力計 `sensor_mag` 相容自動識別**：自動在 `vehicle_magnetometer` 與 `sensor_mag` 之間進行多實例檢測（Compass 0, 1, 2...），相容 `magnetometer_ga` 以及舊款 `x`、`y`、`z` 欄位命名，多個指南針對齊後直接疊加在同一個 Vector Norm 磁強圖表中。
+    * **原始三軸圖表 (X, Y, Z)**：左側新增第三張圖表 `Raw 3-Axis Magnetic Values`，以 Gauss 為單位繪製 X、Y、Z 三軸原始地磁波形，並且在右上角提供了 Compass 實例的下拉選單 (Dropdown Selector)，供隨時切換不同 Compass 進行觀測。
+    * **純磁力計傾角補償航向角 (Pure Mag Headings)**：藉由讀取姿態解算（`vehicle_attitude`）所得到的俯仰 (Pitch) 與橫滾 (Roll) 角度，對所有偵測到的磁力計實例（Compass 0, 1, 2...）進行即時傾角投影計算，得出各自的純地磁航向角，並在 `Multi-Source Heading Comparison` 中同時重疊繪製為獨立曲線（黃色、紫色、青色）。
+    * **自訂曲線顯示 (Checkbox Selector)**：在航向比較圖標頭新增核取方塊控制列（EKF Yaw, GSF Yaw, GPS COG, Mag 0/1/2 Yaw），允許使用者自由勾選組合要在圖表中顯示的線條，點選後圖表即時刷新，且該設置與上方原始三軸資料的 Compass 實例選擇完全分離。
+    * **全磁力計診斷清單**：右側診斷控制台改為循環列表展示所有偵測到的指南針實例，分別列出其平均模長 (Avg Norm)、磁力振盪幅度 (Fluct) 與 EMI 警告狀態，讓電磁干擾無所凸顯。
+  * **📊 工具箱全圖表滑鼠滾輪縮放與橫軸同步 (Zoom & Pan Sync)**：
+    * 在 `VibrationPanel` (FFT 圖表)、`PidResponsePanel` (2張圖表)、`MagneticPanel` (3張圖表)、`StatusModePanel` (3張圖表)、`MotorStatusPanel` (Actuator Output/RPM 圖表) 中全面實作了滑鼠滾輪 `'wheel'` 縮放事件。
+    * 在 PID、磁力計、飛行狀態等包含複數圖表的模組中，使用了 `uPlot.sync` 共享縮放同步實例。當在同一個模組的任一圖表上使用滾輪縮放、游標懸浮或拖曳平移 (Pan) 時，其餘圖表皆會即時聯動更新，保證橫軸時間軸精確對齊。
+  * **⚡ 開啟新繪圖視窗統一以 Blank Chart (空白圖表) 初始化**：
+    * 修改了全域狀態管理 [appStore.tsx](file:///home/kenny/Git_KennySpace/HTML_uLog_analyzer/src/store/appStore.tsx)。現在不論是點擊水平/垂直分割視窗（`SPLIT_PANEL`），或是關閉最後一個視窗觸發重設（`REMOVE_PANEL`），新產生的繪圖面板類型均會統一且直接地初始化為 `type: 'chart'`（即空白圖表），使用者無需再手動點擊「建立空白圖表」按鈕，即可直接進行拖曳欄位繪圖。
+
 ## [Branch: 0704_optimize] (基於 `main` 分支 `2022367` 節點切出)
 * **日期**：2026-07-04
 * **更新狀態**：開發中 / 待合併
@@ -62,3 +83,7 @@
     * 於專案根目錄新增 MIT 授權條款宣告檔案 [LICENSE](./LICENSE)，與 `README.md` 開源條款聲明呼應。
   * **🎨 拖曳上傳區塊樣式修復 (LandingPage)**：
     * 修正首頁拖曳區的 camelCase 類名大小寫拼寫錯誤（`dropzone` 改為 `dropZone`，`dropzoneActive` 改為 `dragOver`），成功恢復虛線方框、背景微發光與拖曳時放大回饋之精美玻璃態外觀，指引用戶進行拖曳上傳。
+  * **🏷️ 全域 GitHub 連結與版本更新日誌整合 (LandingPage & TopBar & Vite)**：
+    * 於首頁上傳區底部 (LandingPage) 與日誌分析頁頂部狀態列 (TopBar) 同步新增 GitHub 項目鏈結與帶有 Build Date 的版本號 (`v1.1.2_20260704`)。
+    * 版本號設定為可點選連結，並能根據目前的介面語言自動開啟對應的更新日誌檔：英文界面連至 `UPDATE_LOG_EN.md`，中文界面連至 `UPDATE_LOG.md`。
+    * 修改 `vite.config.ts`, 新增 Vite 打包關閉後的 `copy-update-logs` 自訂 hook，在打包時自動將更新日誌複製至 `dist/`，保證離線狀態下雙擊 `dist/index.html` 時，點選版本號仍能成功以相對路徑開啟對應日誌。

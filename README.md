@@ -135,7 +135,13 @@ To maintain a clean version history, this project enforces strict update log rul
   * **每一次的 Commit** 都必須同時修改並更新 `UPDATE_LOG.md` 與 `UPDATE_LOG_EN.md`，在最頂端的區塊（或新增對應日期的區塊）中加上本次 Commit 調整項目的說明。
     **Every single commit** must append corresponding descriptions to the top section of both update log files.
 
-### 🤖 4. 給 AI Agent 的特別調度指令 / Machine-Readable Instructions for LLM & AI Agents
+### 4. 前端版本號管理規範 / Front-End Versioning Guidelines
+* **版號定義方式**：本專案的前端介面版本號（顯示於首頁上傳區底部與日誌分析頁頂部狀態列）是硬編碼寫入 React UI 元件中：
+  * **上傳首頁 footer**：於 [LandingPage.tsx](./src/components/LandingPage.tsx) 底部硬編碼版號字串（例如 `v1.2.0_20260705`）。
+  * **主分析頁頂部狀態列**：於 [TopBar.tsx](./src/components/TopBar.tsx) 標頭硬編碼版號字串。
+* **發佈更新規範**：每一次準備合併或發佈 Release 時，**必須**同時修改上述兩個 React 檔案中的版號與 Build Date 字串，並在修改後執行 `npm run build` 進行重新編譯。
+
+### 🤖 5. 給 AI Agent 的特別調度指令 / Machine-Readable Instructions for LLM & AI Agents
 > [!IMPORTANT]
 > **LLM / AI Agent Action Protocol:**
 > 1. **Read Logs First**: Before writing any code, search and read [UPDATE_LOG.md](./UPDATE_LOG.md) and [UPDATE_LOG_EN.md](./UPDATE_LOG_EN.md) to parse the current work state.

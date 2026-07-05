@@ -487,3 +487,52 @@
   color: var(--clr-text-muted);
   font-size: 12px;
 }
+
+/* ─── Split Sidebar Layout ─── */
+.topicsSplitWrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.topicsTreeSection {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.resizer {
+  height: 6px;
+  background-color: var(--clr-border);
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background-color 0.2s ease;
+  position: relative;
+}
+
+.resizer::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 2px;
+  background-color: var(--clr-text-muted);
+  border-radius: 1px;
+}
+
+.resizer:hover,
+.resizer:active {
+  background-color: var(--clr-accent);
+}
+
+.presetsSection {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--clr-border);
+  overflow: hidden;
+}
