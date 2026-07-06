@@ -55,6 +55,8 @@ export class ULogParser {
 
   // 解析後的結構
   private formats: Map<string, ULogFormat> = new Map();
+  private rawFormats: Map<string, string> = new Map();
+  private resolvingFormats: Set<string> = new Set();
   private subscriptions: Map<number, ULogSubscription> = new Map();
   private metadata: Partial<ULogMetadata> = {};
   private messages: ULogMessage[] = [];
@@ -195,9 +197,11 @@ export class ULogParser {
         default:
           // 非定義型別，退回這條訊息的起始位置，進入數據解析階段
           this.pos = headerPos;
+          this._resolveAllFormats();
           return;
       }
     }
+    this._resolveAllFormats();
   }
 
   private _parseData(onProgress?: ParseProgressCallback) {
@@ -253,9 +257,39 @@ export class ULogParser {
     const raw = this._readString(msgEnd);
     // 格式: "TypeName:field1_type field1_name;field2_type field2_name;..."
     const colonIdx = raw.indexOf(':');
-    if (colonIdx < 0) return;
+    if (colonIdx < 0) {
+      this.pos = msgEnd;
+      return;
+    }
     const typeName = raw.substring(0, colonIdx);
     const fieldStr = raw.substring(colonIdx + 1);
+    this.rawFormats.set(typeName, fieldStr);
+    this.pos = msgEnd;
+  }
+
+  private _resolveAllFormats() {
+    for (const typeName of this.rawFormats.keys()) {
+      this._resolveFormat(typeName);
+    }
+  }
+
+  private _resolveFormat(typeName: string): ULogFormat | null {
+    // 若已解析，直接回傳
+    if (this.formats.has(typeName)) {
+      return this.formats.get(typeName)!;
+    }
+
+    // 防止循環依賴導致堆疊溢位
+    if (this.resolvingFormats.has(typeName)) {
+      return null;
+    }
+    this.resolvingFormats.add(typeName);
+
+    const fieldStr = this.rawFormats.get(typeName);
+    if (!fieldStr) {
+      this.resolvingFormats.delete(typeName);
+      return null;
+    }
 
     const fields: ULogField[] = [];
     let byteOffset = 0;
@@ -279,7 +313,6 @@ export class ULogParser {
 
       const fieldType = baseType as ULogFieldType;
       const isPrimitive = fieldType in FIELD_SIZE;
-      const nestedFormat = this.formats.get(fieldType);
 
       if (isPrimitive) {
         const unitSize = FIELD_SIZE[fieldType];
@@ -288,38 +321,42 @@ export class ULogParser {
           fields.push({ name, type: fieldType, arraySize, byteOffset, byteSize });
         }
         byteOffset += byteSize;
-      } else if (nestedFormat) {
-        // 巢狀格式：遞迴展開所有欄位
-        const unitSize = nestedFormat.totalSize;
-        const byteSize = unitSize * arraySize;
-
-        // 如果巢狀欄位是陣列，展開為 name[i].subfield
-        for (let a = 0; a < arraySize; a++) {
-          const arrayPrefix = arraySize > 1 ? `${name}[${a}]` : name;
-          for (const nf of nestedFormat.fields) {
-            fields.push({
-              name: `${arrayPrefix}.${nf.name}`,
-              type: nf.type,
-              arraySize: nf.arraySize,
-              byteOffset: byteOffset + a * unitSize + nf.byteOffset,
-              byteSize: nf.byteSize,
-            });
-          }
-        }
-        byteOffset += byteSize;
       } else {
-        // 兜底處理未知類型（例如 _padding 或是遺失定義的 nested format）
-        const byteSize = arraySize; // 假定大小為 1
-        if (!name.startsWith('_padding')) {
-          fields.push({ name, type: 'uint8_t' as any, arraySize, byteOffset, byteSize });
+        // 巢狀格式：遞迴解析
+        const nestedFormat = this._resolveFormat(fieldType);
+        if (nestedFormat) {
+          const unitSize = nestedFormat.totalSize;
+          const byteSize = unitSize * arraySize;
+
+          // 如果巢狀欄位是陣列，展開為 name[i].subfield
+          for (let a = 0; a < arraySize; a++) {
+            const arrayPrefix = arraySize > 1 ? `${name}[${a}]` : name;
+            for (const nf of nestedFormat.fields) {
+              fields.push({
+                name: `${arrayPrefix}.${nf.name}`,
+                type: nf.type,
+                arraySize: nf.arraySize,
+                byteOffset: byteOffset + a * unitSize + nf.byteOffset,
+                byteSize: nf.byteSize,
+              });
+            }
+          }
+          byteOffset += byteSize;
+        } else {
+          // 兜底處理未知類型（例如 _padding 或是遺失定義的 nested format）
+          const byteSize = arraySize; // 假定大小為 1
+          if (!name.startsWith('_padding')) {
+            fields.push({ name, type: 'uint8_t' as any, arraySize, byteOffset, byteSize });
+          }
+          byteOffset += byteSize;
         }
-        byteOffset += byteSize;
       }
     }
 
     const format: ULogFormat = { name: typeName, fields, totalSize: byteOffset };
     this.formats.set(typeName, format);
-    this.pos = msgEnd;
+    this.resolvingFormats.delete(typeName);
+    return format;
   }
 
   private _parseInfo(msgEnd: number) {

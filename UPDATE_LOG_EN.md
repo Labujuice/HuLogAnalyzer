@@ -4,6 +4,15 @@ This file is used to document and manage update items prior to every Merge Reque
 
 ---
 
+## [Branch: 0707_fix_topic_lost] (Cut from main branch at commit `d04f305`)
+* **Date**: 2026-07-07
+* **Status**: Completed / Pending Merge
+* **Changelog Details**:
+  * **⚡ ULog Nested Format Dependency & Parsing Fix (ULogParser)**:
+    * **Deferred & Recursive Format Resolution**: Decoupled raw format reading (`_parseFormat`) and structural resolution (`_resolveFormat`). Raw format string declarations are cached during the definition scan, and recursively resolved only after the definition block ends. This fixes a critical bug where a nested structure (e.g., `esc_report` inside `esc_status`) declared *after* its parent structure caused the parent to fallback to a generic `uint8_t[8]` definition, leading to incorrect format size calculation, byte offset misalignment, and complete data corruption.
+    * **Circular Dependency Protection**: Introduced a tracking set `resolvingFormats` during recursive resolution to guard against cyclic definitions in corrupted log files, preventing stack overflow errors.
+    * **Nested Field Recovery**: Nested array fields like `esc_status.esc[i].esc_rpm` are now fully expanded with correct offsets and data types, enabling successful extraction and rendering of ESC/Motor RPM plots.
+
 ## [Branch: 0705_plot_feature] (Cut from main branch at commit `d04f305`)
 * **Date**: 2026-07-05
 * **Status**: Completed / Pending Merge
