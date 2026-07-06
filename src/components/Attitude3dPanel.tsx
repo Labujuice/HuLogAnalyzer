@@ -98,6 +98,19 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 
   const [hasAttitude, setHasAttitude] = useState<boolean>(!!attTopic);
 
+  // WebGL support / initialization state
+  const [webglError, setWebglError] = useState<boolean>(() => {
+    try {
+      const canvas = document.createElement('canvas');
+      return !(
+        window.WebGLRenderingContext &&
+        (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+      );
+    } catch (e) {
+      return true;
+    }
+  });
+
   // Request topic data if not loaded
   useEffect(() => {
     if (attTopic) {
@@ -274,7 +287,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
 
   // Setup Three.js Scene
   useEffect(() => {
-    if (!mountRef.current || !hasAttitude) return;
+    if (!mountRef.current || !hasAttitude || webglError) return;
 
     const container = mountRef.current;
     const width = container.clientWidth;
@@ -288,7 +301,15 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 5000);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+    } catch (e) {
+      console.error("Three.js WebGLRenderer creation failed:", e);
+      setWebglError(true);
+      return;
+    }
+
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(renderer.domElement);
@@ -470,7 +491,7 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
       rendererRef.current = null;
       setSceneReady(false);
     };
-  }, [hasAttitude, getAverageMotorSpeedAt]);
+  }, [hasAttitude, getAverageMotorSpeedAt, webglError]);
 
   // Toggle Satellite Visibility Reactively
   useEffect(() => {
@@ -1027,6 +1048,26 @@ export function Attitude3dPanel({ panelId, currentTimeUs }: Attitude3dPanelProps
     isDragging.current = false;
     dragMode.current = 'none';
   };
+
+  if (webglError) {
+    return (
+      <div className={styles.root}>
+        <div className={styles.noData}>
+          <div style={{ textAlign: 'center', padding: '24px', maxWidth: '400px' }}>
+            <div style={{ fontSize: '24px', marginBottom: '12px' }}>⚠️</div>
+            <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#f87171', marginBottom: '8px' }}>
+              {state.language === 'en' ? 'WebGL Initialization Failed' : 'WebGL 初始化失敗'}
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--clr-text-secondary)', lineHeight: '1.6', margin: '0 auto' }}>
+              {state.language === 'en' 
+                ? 'Your browser or graphics card does not support WebGL, or hardware acceleration is disabled. Please check your browser settings to ensure hardware acceleration is enabled.' 
+                : '當前瀏覽器或顯示卡不支援 WebGL，或是網頁硬體加速功能被關閉了。請至瀏覽器設定中開啟「使用硬體加速」並重新載入網頁。'}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!hasAttitude) {
     return (
