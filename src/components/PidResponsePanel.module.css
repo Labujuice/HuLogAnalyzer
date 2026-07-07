@@ -265,3 +265,60 @@
   font-size: 12px;
   margin-top: 8px;
 }
+
+.modeToolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modeSelect {
+  display: flex;
+  background-color: #111827;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.modeBtn {
+  background: none;
+  border: none;
+  color: #64748b;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.modeBtn:hover {
+  color: #cbd5e1;
+}
+
+.modeBtn.modeActive {
+  background-color: #1f2937;
+  color: #e2e8f0;
+}
+
+.snrSliderContainer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.sliderLabel {
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+.snrSlider {
+  width: 80px;
+  height: 4px;
+  background: #334155;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+

@@ -8,7 +8,7 @@
 import { ULogParser } from '../parser/ULogParser';
 import { lttbDownsample, getLttbIndices, sliceByTimeRange, quatToEuler } from '../parser/utils';
 import { computeFFTAmplitude } from '../parser/fft';
-import { computeRMSE, computeCorrelation, detectLagUs, interpolateSeries } from '../parser/mathUtils';
+import { computeRMSE, computeCorrelation, detectLagUs, interpolateSeries, estimateImpulseResponse, integrateImpulseResponse } from '../parser/mathUtils';
 import { executeCustomCalculation } from '../parser/customCalcParser';
 import type { WorkerRequest, WorkerResponse } from '../types/ulog';
 
@@ -367,6 +367,17 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         const rmse = computeRMSE(yAct, ySetFinal);
         const corr = computeCorrelation(yAct, ySetFinal);
 
+        // 4. 計算維納反褶積估計的階躍響應
+        const snr = req.snr || 100;
+        const impulse = estimateImpulseResponse(ySetAligned, yAct, tRef, snr);
+        const wienerStep = integrateImpulseResponse(impulse);
+
+        // 5. 計算頻域幅值頻譜 (FFT)
+        const avgDtSec = (tRef[tRef.length - 1] - tRef[0]) / (tRef.length - 1) / 1e6;
+        const sampleRate = avgDtSec > 0 ? 1.0 / avgDtSec : 100.0;
+        const fftSet = computeFFTAmplitude(ySetFinal, sampleRate);
+        const fftAct = computeFFTAmplitude(yAct, sampleRate);
+
         const resp: WorkerResponse = {
           type: 'PID_DATA_ALIGNED',
           requestId: req.requestId,
@@ -375,15 +386,31 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
           actualAligned: yAct,
           rmse,
           corr,
-          lagUs
+          lagUs,
+          wienerStep,
+          fftFrequencies: fftSet.frequencies,
+          fftSetpointAmplitudes: fftSet.amplitudes,
+          fftActualAmplitudes: fftAct.amplitudes
         };
 
         // Zero-copy transfer
-        (self as unknown as Worker).postMessage(resp, [
+        const transferables: ArrayBuffer[] = [
           tRef.buffer as ArrayBuffer,
           ySetFinal.buffer as ArrayBuffer,
-          yAct.buffer as ArrayBuffer
-        ]);
+          yAct.buffer as ArrayBuffer,
+          wienerStep.buffer as ArrayBuffer
+        ];
+        if (fftSet.frequencies.buffer) {
+          transferables.push(fftSet.frequencies.buffer as ArrayBuffer);
+        }
+        if (fftSet.amplitudes.buffer) {
+          transferables.push(fftSet.amplitudes.buffer as ArrayBuffer);
+        }
+        if (fftAct.amplitudes.buffer) {
+          transferables.push(fftAct.amplitudes.buffer as ArrayBuffer);
+        }
+
+        (self as unknown as Worker).postMessage(resp, transferables);
       } catch (err) {
         self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
       }

@@ -107,7 +107,11 @@ export class ULogWorkerBridge {
               actualAligned: resp.actualAligned,
               rmse: resp.rmse,
               corr: resp.corr,
-              lagUs: resp.lagUs
+              lagUs: resp.lagUs,
+              wienerStep: resp.wienerStep,
+              fftFrequencies: resp.fftFrequencies,
+              fftSetpointAmplitudes: resp.fftSetpointAmplitudes,
+              fftActualAmplitudes: resp.fftActualAmplitudes
             });
             this.pendingCalcResolvers.delete(resp.requestId);
           }
@@ -208,7 +212,8 @@ export class ULogWorkerBridge {
     actualTopic: string,
     actualField: string,
     timeStartUs: number,
-    timeEndUs: number
+    timeEndUs: number,
+    snr?: number
   ): Promise<{
     timestamps: Float64Array;
     setpointAligned: Float32Array;
@@ -216,6 +221,10 @@ export class ULogWorkerBridge {
     rmse: number;
     corr: number;
     lagUs: number;
+    wienerStep?: Float32Array;
+    fftFrequencies?: Float64Array;
+    fftSetpointAmplitudes?: Float32Array;
+    fftActualAmplitudes?: Float32Array;
   }> {
     const requestId = this._getRequestId();
     return new Promise((resolve, reject) => {
@@ -229,6 +238,7 @@ export class ULogWorkerBridge {
         actualField,
         timeStartUs,
         timeEndUs,
+        snr,
       };
       this.worker!.postMessage(req);
     });

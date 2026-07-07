@@ -132,10 +132,21 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
   const stepChartRef = useRef<uPlot | null>(null);
   const stepContainerRef = useRef<HTMLDivElement>(null);
 
+  const fftChartRef = useRef<uPlot | null>(null);
+  const fftContainerRef = useRef<HTMLDivElement>(null);
+
   const [activeLoop, setActiveLoop] = useState<LoopType>('rate');
   const [activeAxis, setActiveAxis] = useState<AxisType>('roll');
   const [isCalculating, setIsCalculating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const [analysisMode, setAnalysisMode] = useState<'window' | 'wiener'>('window');
+  const [snr, setSnr] = useState<number>(100);
+  const [fftData, setFftData] = useState<{
+    frequencies: Float64Array;
+    setpointAmplitudes: Float32Array;
+    actualAmplitudes: Float32Array;
+  } | null>(null);
 
   // 1. 本地 uPlot 橫向縮放與游標同步對象
   const pidSync = useMemo(() => uPlot.sync('pid-panel-sync'), []);
@@ -153,6 +164,10 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     startS: number;
     endS: number;
     stepResponses: { t: number[]; y: number[] }[];
+    wienerStep?: Float32Array;
+    fftFrequencies?: Float64Array;
+    fftSetpointAmplitudes?: Float32Array;
+    fftActualAmplitudes?: Float32Array;
   }>>(new Map());
 
   const autoCalcTimeoutRef = useRef<any>(null);
@@ -171,6 +186,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     const config = LOOP_CONFIGS[activeLoop];
     setActiveAxis(config.axes[0].id);
     setMetrics(null);
+    setFftData(null);
   }, [activeLoop]);
 
   const checkTopicsExist = useCallback((loop: LoopType) => {
@@ -203,6 +219,65 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
       });
     });
   }, [state.summary]);
+
+  // 繪製 FFT 頻譜圖
+  const drawFftChart = useCallback((
+    frequencies: Float64Array,
+    setpointAmplitudes: Float32Array,
+    actualAmplitudes: Float32Array
+  ) => {
+    if (!fftContainerRef.current) return;
+    fftChartRef.current?.destroy();
+    fftChartRef.current = null;
+
+    if (frequencies.length === 0) return;
+
+    const uPlotData = [frequencies, setpointAmplitudes, actualAmplitudes];
+    const rect = fftContainerRef.current.getBoundingClientRect();
+
+    const opts = {
+      width: Math.max(100, Math.floor(rect.width)),
+      height: Math.max(100, Math.floor(rect.height)),
+      scales: {
+        x: { time: false },
+        y: { auto: true }
+      },
+      axes: [
+        {
+          label: 'Frequency (Hz)',
+          stroke: '#64748b',
+          grid: { stroke: '#1e293b', width: 1 },
+          font: '10px JetBrains Mono, monospace',
+        },
+        {
+          label: 'Amplitude',
+          stroke: '#64748b',
+          grid: { stroke: '#1e293b', width: 1 },
+          font: '10px JetBrains Mono, monospace',
+          side: 3,
+        }
+      ],
+      series: [
+        { label: 'Frequency (Hz)' },
+        {
+          label: 'Setpoint FFT',
+          stroke: '#10b981',
+          width: 1.5,
+          points: { show: false }
+        },
+        {
+          label: 'Feedback FFT',
+          stroke: '#ef4444',
+          width: 1.5,
+          points: { show: false }
+        }
+      ],
+      legend: { show: false }
+    };
+
+    const plot = new uPlot(opts, uPlotData, fftContainerRef.current);
+    fftChartRef.current = plot;
+  }, []);
 
   // 繪製 Step Response
   const drawStepChart = useCallback((steps: { t: number[]; y: number[] }[], axisLabel: string) => {
@@ -310,7 +385,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     const startUs = state.playback.startTimeUs;
     const endUs = state.playback.endTimeUs;
     const startLogUs = state.summary.startTimestampUs;
-    const cacheKey = `${activeLoop}:${activeAxis}:${startUs}:${endUs}`;
+    const cacheKey = `${activeLoop}:${activeAxis}:${startUs}:${endUs}:${analysisMode}:${snr}`;
 
     // 檢查快取
     if (pidCacheRef.current.has(cacheKey)) {
@@ -324,6 +399,15 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         computedRange: { startS: cached.startS, endS: cached.endS },
         hasSteps: cached.stepResponses.length > 0
       });
+      if (cached.fftFrequencies && cached.fftSetpointAmplitudes && cached.fftActualAmplitudes) {
+        setFftData({
+          frequencies: cached.fftFrequencies,
+          setpointAmplitudes: cached.fftSetpointAmplitudes,
+          actualAmplitudes: cached.fftActualAmplitudes
+        });
+      } else {
+        setFftData(null);
+      }
       setErrorMsg(null);
 
       // A. 繪製對齊圖表
@@ -336,10 +420,10 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
           xsSec[i] = (cached.timestamps[i] - startLogUs) / 1e6;
         }
 
-        const uPlotData: uPlot.AlignedData = [xsSec, cached.setpointAligned, cached.actualAligned];
+        const uPlotData = [xsSec, cached.setpointAligned, cached.actualAligned];
         const rect = containerRef.current.getBoundingClientRect();
 
-        const opts: uPlot.Options = {
+        const opts = {
           width: Math.max(100, Math.floor(rect.width)),
           height: Math.max(100, Math.floor(rect.height)),
           scales: { x: { time: false }, y: { auto: true } },
@@ -383,6 +467,9 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
       }
 
       drawStepChart(cached.stepResponses, axisConfig.label);
+      if (cached.fftFrequencies && cached.fftSetpointAmplitudes && cached.fftActualAmplitudes) {
+        drawFftChart(cached.fftFrequencies, cached.fftSetpointAmplitudes, cached.fftActualAmplitudes);
+      }
       return;
     }
 
@@ -400,14 +487,29 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         config.actualTopic,
         axisConfig.actualField,
         startUs,
-        endUs
+        endUs,
+        snr
       );
 
       const timestamps = result.timestamps;
       const setpoint = result.setpointAligned;
       const actual = result.actualAligned;
 
-      const stepResponses = extractStepResponses(timestamps, setpoint, actual, activeLoop);
+      let stepResponses = [];
+      if (analysisMode === 'wiener' && result.wienerStep) {
+        const avgDtSec = (timestamps[timestamps.length - 1] - timestamps[0]) / (timestamps.length - 1) / 1e6;
+        const windowSec = activeLoop === 'position' || activeLoop === 'velocity' ? 1.5 : 0.8;
+        const limitSamples = Math.min(result.wienerStep.length, Math.ceil(windowSec / avgDtSec));
+        const tWiener = [];
+        const yWiener = [];
+        for (let i = 0; i < limitSamples; i++) {
+          tWiener.push(i * avgDtSec);
+          yWiener.push(result.wienerStep[i]);
+        }
+        stepResponses = [{ t: tWiener, y: yWiener }];
+      } else {
+        stepResponses = extractStepResponses(timestamps, setpoint, actual, activeLoop);
+      }
 
       let rating = 'Poor (欠佳)';
       let ratingColor = '#ef4444';
@@ -432,6 +534,16 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         hasSteps: stepResponses.length > 0
       });
 
+      if (result.fftFrequencies && result.fftSetpointAmplitudes && result.fftActualAmplitudes) {
+        setFftData({
+          frequencies: result.fftFrequencies,
+          setpointAmplitudes: result.fftSetpointAmplitudes,
+          actualAmplitudes: result.fftActualAmplitudes
+        });
+      } else {
+        setFftData(null);
+      }
+
       pidCacheRef.current.set(cacheKey, {
         timestamps,
         setpointAligned: setpoint,
@@ -443,7 +555,11 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         ratingColor,
         startS,
         endS,
-        stepResponses
+        stepResponses,
+        wienerStep: result.wienerStep,
+        fftFrequencies: result.fftFrequencies,
+        fftSetpointAmplitudes: result.fftSetpointAmplitudes,
+        fftActualAmplitudes: result.fftActualAmplitudes
       });
 
       if (containerRef.current) {
@@ -455,10 +571,10 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
           xsSec[i] = (timestamps[i] - startLogUs) / 1e6;
         }
 
-        const uPlotData: uPlot.AlignedData = [xsSec, setpoint, actual];
+        const uPlotData = [xsSec, setpoint, actual];
         const rect = containerRef.current.getBoundingClientRect();
 
-        const opts: uPlot.Options = {
+        const opts = {
           width: Math.max(100, Math.floor(rect.width)),
           height: Math.max(100, Math.floor(rect.height)),
           scales: {
@@ -519,13 +635,16 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
       }
 
       drawStepChart(stepResponses, axisConfig.label);
+      if (result.fftFrequencies && result.fftSetpointAmplitudes && result.fftActualAmplitudes) {
+        drawFftChart(result.fftFrequencies, result.fftSetpointAmplitudes, result.fftActualAmplitudes);
+      }
 
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
     } finally {
       setIsCalculating(false);
     }
-  }, [state.summary, activeLoop, activeAxis, state.playback.startTimeUs, state.playback.endTimeUs, currentTimeUs, drawStepChart, pidSync, registerWheelZoom]);
+  }, [state.summary, activeLoop, activeAxis, state.playback.startTimeUs, state.playback.endTimeUs, currentTimeUs, drawStepChart, drawFftChart, pidSync, registerWheelZoom, analysisMode, snr]);
 
   // 當選擇改變時，清理圖表
   useEffect(() => {
@@ -534,6 +653,8 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
       chartRef.current = null;
       stepChartRef.current?.destroy();
       stepChartRef.current = null;
+      fftChartRef.current?.destroy();
+      fftChartRef.current = null;
     };
   }, [activeLoop, activeAxis]);
 
@@ -552,7 +673,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         clearTimeout(autoCalcTimeoutRef.current);
       }
     };
-  }, [activeLoop, activeAxis, state.playback.startTimeUs, state.playback.endTimeUs, handleCalculatePID]);
+  }, [activeLoop, activeAxis, state.playback.startTimeUs, state.playback.endTimeUs, analysisMode, snr, handleCalculatePID]);
 
   // 當播放時間線更新時重繪
   useEffect(() => {
@@ -572,11 +693,16 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
         const rect = stepContainerRef.current.getBoundingClientRect();
         stepChartRef.current.setSize({ width: Math.max(100, Math.floor(rect.width)), height: Math.max(100, Math.floor(rect.height)) });
       }
+      if (fftChartRef.current && fftContainerRef.current) {
+        const rect = fftContainerRef.current.getBoundingClientRect();
+        fftChartRef.current.setSize({ width: Math.max(100, Math.floor(rect.width)), height: Math.max(100, Math.floor(rect.height)) });
+      }
     };
 
     const ro = new ResizeObserver(handleResize);
     if (containerRef.current) ro.observe(containerRef.current);
     if (stepContainerRef.current) ro.observe(stepContainerRef.current);
+    if (fftContainerRef.current) ro.observe(fftContainerRef.current);
     return () => ro.disconnect();
   }, []);
 
@@ -605,7 +731,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
       </div>
 
       <div className={styles.mainArea}>
-        {/* 左側雙圖表堆疊 */}
+        {/* 左側三圖表堆疊 */}
         <div className={styles.chartSection}>
           <div className={styles.axisToolbar}>
             <div className={styles.axisSelect}>
@@ -619,6 +745,38 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
                 </button>
               ))}
             </div>
+
+            {/* 模式切換與 SNR 微調 */}
+            <div className={styles.modeToolbar}>
+              <div className={styles.modeSelect}>
+                <button
+                  className={`${styles.modeBtn} ${analysisMode === 'window' ? styles.modeActive : ''}`}
+                  onClick={() => setAnalysisMode('window')}
+                >
+                  {state.language === 'en' ? 'Time Window' : '時域窗口法'}
+                </button>
+                <button
+                  className={`${styles.modeBtn} ${analysisMode === 'wiener' ? styles.modeActive : ''}`}
+                  onClick={() => setAnalysisMode('wiener')}
+                >
+                  {state.language === 'en' ? 'Wiener ID' : '維納反褶積法'}
+                </button>
+              </div>
+              {analysisMode === 'wiener' && (
+                <div className={styles.snrSliderContainer}>
+                  <span className={styles.sliderLabel}>SNR: {snr}</span>
+                  <input
+                    type="range"
+                    min="10"
+                    max="500"
+                    step="10"
+                    value={snr}
+                    onChange={(e) => setSnr(parseInt(e.target.value))}
+                    className={styles.snrSlider}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {!hasData ? (
@@ -629,7 +787,7 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
             </div>
           ) : (
             <div className={styles.chartsStack}>
-              {/* 上圖：原始數據對齊 */}
+              {/* 1. 原始數據對齊 */}
               <div className={styles.chartBlock}>
                 <div className={styles.chartBlockHeader}>
                   📈 {state.language === 'en' ? 'Time-Domain Alignment (Setpoint vs Actual)' : '時域對齊比較圖 (期望值 vs 實測值)'}
@@ -644,10 +802,12 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
                 </div>
               </div>
 
-              {/* 下圖：階躍響應 */}
+              {/* 2. 階躍響應 */}
               <div className={styles.chartBlock}>
                 <div className={styles.chartBlockHeader}>
-                  🎯 {state.language === 'en' ? 'Normalized Step Response Envelope' : '正規化階躍響應包絡圖'}
+                  🎯 {analysisMode === 'wiener'
+                    ? (state.language === 'en' ? 'Estimated Step Response (Wiener Deconvolution)' : '估算之階躍響應 (維納反褶積法)')
+                    : (state.language === 'en' ? 'Normalized Step Response Envelope' : '正規化階躍響應包絡圖')}
                 </div>
                 <div className={styles.chartWrapper}>
                   {isCalculating && (
@@ -665,6 +825,23 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
                   <div ref={stepContainerRef} className={styles.chartArea} />
                 </div>
               </div>
+
+              {/* 3. 頻譜強度對比 (FFT) */}
+              {fftData && (
+                <div className={styles.chartBlock}>
+                  <div className={styles.chartBlockHeader}>
+                    📊 {state.language === 'en' ? 'FFT Power Spectrum (Setpoint vs Feedback)' : '頻譜能量強度對比圖 (期望值 vs 實測值)'}
+                  </div>
+                  <div className={styles.chartWrapper}>
+                    {isCalculating && (
+                      <div className={styles.chartOverlay}>
+                        <div style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold' }}>{state.language === 'en' ? '⚡ Calculating FFT...' : '⚡ 正在計算頻譜能量...'}</div>
+                      </div>
+                    )}
+                    <div ref={fftContainerRef} className={styles.chartArea} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

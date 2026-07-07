@@ -199,3 +199,55 @@ export function computeFFTAmplitude(
 
   return { frequencies, amplitudes };
 }
+
+/**
+ * 原地 (In-place) 複數快速傅立葉逆變換 (Cooley-Tukey Radix-2 IFFT)
+ * @param real 實部陣列 (長度必須為 2 的冪次方)
+ * @param imag 虛部陣列 (長度與實部相同)
+ */
+export function complexIFFT(real: Float32Array, imag: Float32Array): void {
+  const n = real.length;
+  if (!isPowerOfTwo(n)) {
+    throw new Error('IFFT 長度必須是 2 的冪次方');
+  }
+
+  // 1. 重排輸入訊號
+  bitReversePermutation(real, imag);
+
+  // 2. 迭代蝶形運算
+  for (let size = 2; size <= n; size *= 2) {
+    const half = size >> 1;
+    const tabReal = Math.cos((2 * Math.PI) / size);
+    const tabImag = Math.sin((2 * Math.PI) / size); // +sin 代表逆變換 IFFT
+
+    for (let i = 0; i < n; i += size) {
+      let wr = 1.0;
+      let wi = 0.0;
+      for (let j = 0; j < half; j++) {
+        const a = i + j;
+        const b = i + j + half;
+
+        const tr = wr * real[b] - wi * imag[b];
+        const ti = wr * imag[b] + wi * real[b];
+
+        real[b] = real[a] - tr;
+        imag[b] = imag[a] - ti;
+
+        real[a] = real[a] + tr;
+        imag[a] = imag[a] + ti;
+
+        const nextWr = wr * tabReal - wi * tabImag;
+        const nextWi = wr * tabImag + wi * tabReal;
+        wr = nextWr;
+        wi = nextWi;
+      }
+    }
+  }
+
+  // 3. 除以 N
+  for (let i = 0; i < n; i++) {
+    real[i] /= n;
+    imag[i] /= n;
+  }
+}
+

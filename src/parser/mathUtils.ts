@@ -1,6 +1,8 @@
 /**
  * 進階數學與訊號處理工具模組
  */
+import { largestPowerOfTwo, complexFFT, complexIFFT, applyHanningWindow, detrend } from './fft';
+
 
 /**
  * 計算三維向量模長 (Vector Norm)：sqrt(x^2 + y^2 + z^2)
@@ -179,3 +181,91 @@ export function detectLagUs(
   // bestShift > 0 代表 actual[i] 對應 target[i + shift] (未來的值)，表示 actual 訊號發生滯後
   return bestShift * dtUs;
 }
+
+/**
+ * 使用維納反褶積 (Wiener Deconvolution) 進行系統識別，估計脈衝響應
+ * @param input 期望值 (Setpoint) 陣列
+ * @param output 實際值 (Actual Feedback) 陣列
+ * @param timestamps 時間戳 (微秒)
+ * @param snr 信噪比正則化參數 (例如 100)
+ */
+export function estimateImpulseResponse(
+  input: Float32Array,
+  output: Float32Array,
+  timestamps: Float64Array,
+  snr: number
+): Float32Array {
+  const rawN = input.length;
+  const n = largestPowerOfTwo(rawN);
+  if (n < 4) return new Float32Array(0);
+
+  // 1. 計算差分微分（變化率）以去除直流偏置並保留高頻暫態
+  let u_d = new Float32Array(n);
+  let y_d = new Float32Array(n);
+
+  for (let i = 1; i < n; i++) {
+    const dt = (timestamps[i] - timestamps[i - 1]) / 1e6;
+    if (dt > 0 && dt < 1.0) {
+      u_d[i] = (input[i] - input[i - 1]) / dt;
+      y_d[i] = (output[i] - output[i - 1]) / dt;
+    }
+  }
+
+  // 2. 套用漢寧窗 (Hanning Window) 降低頻域邊界洩漏
+  const u_windowed = applyHanningWindow(u_d);
+  const y_windowed = applyHanningWindow(y_d);
+
+  // 3. 準備實部與虛部進行 FFT
+  const uReal = new Float32Array(u_windowed);
+  const uImag = new Float32Array(n);
+  const yReal = new Float32Array(y_windowed);
+  const yImag = new Float32Array(n);
+
+  complexFFT(uReal, uImag);
+  complexFFT(yReal, yImag);
+
+  // 4. 維納濾波反褶積 H(f) = (Y * U*) / (|U|^2 + 1/SNR)
+  const hReal = new Float32Array(n);
+  const hImag = new Float32Array(n);
+  const nsr = 1.0 / snr;
+
+  for (let k = 0; k < n; k++) {
+    const ur = uReal[k];
+    const ui = uImag[k];
+    const yr = yReal[k];
+    const yi = yImag[k];
+
+    const uPower = ur * ur + ui * ui;
+    const den = uPower + nsr;
+
+    hReal[k] = (yr * ur + yi * ui) / den;
+    hImag[k] = (yi * ur - yr * ui) / den;
+  }
+
+  // 5. 逆快速傅立葉變換 (IFFT) 轉回時域，得到脈衝響應
+  complexIFFT(hReal, hImag);
+
+  return hReal; // 脈衝響應 h(t)
+}
+
+/**
+ * 對脈衝響應進行數值積分，以獲得階躍響應
+ * @param impulseResponse 脈衝響應陣列
+ */
+export function integrateImpulseResponse(
+  impulseResponse: Float32Array
+): Float32Array {
+  const n = impulseResponse.length;
+  const stepResponse = new Float32Array(n);
+  
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    // 數值積分: 累加離散脈衝響應得到離散階躍響應。
+    // 由於輸入已作歸一化差分，這裡直接累加即為無量綱的歸一化階躍響應。
+    sum += impulseResponse[i];
+    stepResponse[i] = sum;
+  }
+
+  return stepResponse;
+}
+
