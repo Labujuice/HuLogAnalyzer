@@ -706,6 +706,13 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     return () => ro.disconnect();
   }, []);
 
+  // 監聽 fftData 變化，確保在 DOM 掛載後即時繪製 FFT 圖表，解決初次載入不顯示的競態問題
+  useEffect(() => {
+    if (fftData && fftContainerRef.current) {
+      drawFftChart(fftData.frequencies, fftData.setpointAmplitudes, fftData.actualAmplitudes);
+    }
+  }, [fftData, drawFftChart]);
+
   const hasData = checkTopicsExist(activeLoop);
   const currentConfig = LOOP_CONFIGS[activeLoop];
 

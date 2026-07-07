@@ -553,11 +553,33 @@ export function ChartPanel({
             )
           ) : (
             <span className={styles.activePanelLabel}>
-              {panel.type === 'attitude3d' 
-                ? (state.language === 'en' ? '🛸 3D Attitude Viewer' : '🛸 3D 姿態觀測器') 
-                : panel.type === 'ahrs' 
-                  ? (state.language === 'en' ? '✈️ AHRS PFD HUD' : '✈️ AHRS 航空儀表') 
-                  : (state.language === 'en' ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡')}
+              {(() => {
+                const isEn = state.language === 'en';
+                switch (panel.type) {
+                  case 'attitude3d':
+                    return isEn ? '🛸 3D Attitude Viewer' : '🛸 3D 姿態觀測器';
+                  case 'ahrs':
+                    return isEn ? '✈️ AHRS PFD HUD' : '✈️ AHRS 航空儀表';
+                  case 'map':
+                    return isEn ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡';
+                  case 'vibration':
+                    return isEn ? '📊 FFT Vibration Analysis' : '📊 FFT 震動分析工具';
+                  case 'pid_tracking':
+                    return isEn ? '📈 Controller Step Response ID' : '📈 控制器階躍響應識別';
+                  case 'motor_balance':
+                    return isEn ? '⚡ Motor Balance Diagnostics' : '⚡ 電機動力平衡診斷';
+                  case 'magnetic_analysis':
+                    return isEn ? '🧲 Compass Magnetic Diagnostics' : '🧲 羅盤磁場干擾分析';
+                  case 'status_mode':
+                    return isEn ? '📋 Flight Status & Modes' : '📋 飛行狀態與模式日誌';
+                  case 'metadata':
+                    return isEn ? 'ℹ️ Log Information' : 'ℹ️ 日誌基礎資訊';
+                  case 'messages':
+                    return isEn ? '💬 System Messages' : '💬 系統日誌訊息';
+                  default:
+                    return isEn ? '🗺️ 2D GPS Map' : '🗺️ 2D 地圖軌跡';
+                }
+              })()}
             </span>
           )}
         </div>
