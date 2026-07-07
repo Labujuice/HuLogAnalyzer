@@ -276,6 +276,30 @@ export function PidResponsePanel({ panelId, currentTimeUs }: PidResponsePanelPro
     };
 
     const plot = new uPlot(opts, uPlotData, fftContainerRef.current);
+    const maxFreqLimit = frequencies[frequencies.length - 1] * 1.1;
+    plot.over.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      const minX = plot.scales.x.min!;
+      const maxX = plot.scales.x.max!;
+      const range = maxX - minX;
+      const rect = plot.over.getBoundingClientRect();
+      const mousePct = (e.clientX - rect.left) / rect.width;
+      const mouseVal = minX + mousePct * range;
+      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+      const newRange = range * zoomFactor;
+      let newMin = mouseVal - mousePct * newRange;
+      let newMax = newMin + newRange;
+      
+      if (newMin < 0) {
+        newMin = 0;
+        newMax = Math.min(maxFreqLimit, newMin + newRange);
+      }
+      if (newMax > maxFreqLimit) {
+        newMax = maxFreqLimit;
+        newMin = Math.max(0, newMax - newRange);
+      }
+      plot.setScale('x', { min: newMin, max: newMax });
+    });
     fftChartRef.current = plot;
   }, []);
 

@@ -125,6 +125,7 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
           ]
         };
         const plot = new uPlot(opts, uPlotData, containerRef.current);
+        const maxFreqLimit = cached.frequencies[cached.frequencies.length - 1] * 1.1;
         plot.over.addEventListener('wheel', (e: WheelEvent) => {
           e.preventDefault();
           const minX = plot.scales.x.min!;
@@ -135,9 +136,18 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
           const mouseVal = minX + mousePct * range;
           const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
           const newRange = range * zoomFactor;
-          const newMin = mouseVal - mousePct * newRange;
-          const newMax = newMin + newRange;
-          plot.setScale('x', { min: Math.max(0, newMin), max: newMax });
+          let newMin = mouseVal - mousePct * newRange;
+          let newMax = newMin + newRange;
+          
+          if (newMin < 0) {
+            newMin = 0;
+            newMax = Math.min(maxFreqLimit, newMin + newRange);
+          }
+          if (newMax > maxFreqLimit) {
+            newMax = maxFreqLimit;
+            newMin = Math.max(0, newMax - newRange);
+          }
+          plot.setScale('x', { min: newMin, max: newMax });
         });
         chartRef.current = plot;
       }
@@ -223,6 +233,7 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
         };
 
         const plot = new uPlot(opts, uPlotData, containerRef.current);
+        const maxFreqLimit = frequencies[frequencies.length - 1] * 1.1;
         plot.over.addEventListener('wheel', (e: WheelEvent) => {
           e.preventDefault();
           const minX = plot.scales.x.min!;
@@ -233,9 +244,18 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
           const mouseVal = minX + mousePct * range;
           const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
           const newRange = range * zoomFactor;
-          const newMin = mouseVal - mousePct * newRange;
-          const newMax = newMin + newRange;
-          plot.setScale('x', { min: Math.max(0, newMin), max: newMax });
+          let newMin = mouseVal - mousePct * newRange;
+          let newMax = newMin + newRange;
+          
+          if (newMin < 0) {
+            newMin = 0;
+            newMax = Math.min(maxFreqLimit, newMin + newRange);
+          }
+          if (newMax > maxFreqLimit) {
+            newMax = maxFreqLimit;
+            newMin = Math.max(0, newMax - newRange);
+          }
+          plot.setScale('x', { min: newMin, max: newMax });
         });
         chartRef.current = plot;
       }
