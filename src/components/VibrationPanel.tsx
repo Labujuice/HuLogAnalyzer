@@ -29,14 +29,40 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
     const topics = state.summary.topics;
     
     if (type === 'accel') {
-      const match = topics.find(t => t.name === 'sensor_accel' || t.name === 'sensor_combined');
+      // 優先使用 sensor_combined，以符合 accelerometer_m_s2[n] 要求，其次 fallback 至 sensor_accel
+      const match = topics.find(t => t.name === 'sensor_combined' || t.name === 'sensor_accel');
       if (!match) return null;
-      const fields = match.fields.filter(f => f.startsWith('x') || f.startsWith('accelerometer_m_s2'));
+      
+      let fields: string[] = [];
+      if (match.name === 'sensor_combined') {
+        fields = match.fields.filter(f => f.startsWith('accelerometer_m_s2'));
+      } else {
+        fields = match.fields.filter(f => 
+          f.startsWith('x') || 
+          f === 'y' || 
+          f === 'z' || 
+          f.startsWith('accelerometer_m_s2')
+        );
+      }
+      fields.sort();
       return { topicName: match.name, multiId: match.multiId, fields };
     } else {
-      const match = topics.find(t => t.name === 'sensor_gyro' || t.name === 'sensor_combined');
+      // 優先使用 sensor_combined，其次 fallback 至 sensor_gyro
+      const match = topics.find(t => t.name === 'sensor_combined' || t.name === 'sensor_gyro');
       if (!match) return null;
-      const fields = match.fields.filter(f => f.startsWith('x') || f.startsWith('gyro_rad'));
+      
+      let fields: string[] = [];
+      if (match.name === 'sensor_combined') {
+        fields = match.fields.filter(f => f.startsWith('gyro_rad'));
+      } else {
+        fields = match.fields.filter(f => 
+          f.startsWith('x') || 
+          f === 'y' || 
+          f === 'z' || 
+          f.startsWith('gyro_rad')
+        );
+      }
+      fields.sort();
       return { topicName: match.name, multiId: match.multiId, fields };
     }
   }, [state.summary]);
