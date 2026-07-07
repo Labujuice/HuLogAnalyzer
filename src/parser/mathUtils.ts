@@ -156,19 +156,25 @@ export function detectLagUs(
   meanAct /= n;
   meanTgt /= n;
 
-  // 搜尋互相關最大值
+  // 預先去中心化以提昇內層循環運算效能
+  const actZeroMean = new Float32Array(n);
+  const tgtZeroMean = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    actZeroMean[i] = actual[i] - meanAct;
+    tgtZeroMean[i] = target[i] - meanTgt;
+  }
+
+  // 搜尋互相關最大值 (優化循環邊界以利 JIT 優化與向量化)
   for (let shift = -maxShift; shift <= maxShift; shift++) {
     let cov = 0;
-    let count = 0;
+    const start = Math.max(0, -shift);
+    const end = Math.min(n, n - shift);
     
-    for (let i = 0; i < n; i++) {
-      const j = i + shift;
-      if (j >= 0 && j < n) {
-        cov += (actual[i] - meanAct) * (target[j] - meanTgt);
-        count++;
-      }
+    for (let i = start; i < end; i++) {
+      cov += actZeroMean[i] * tgtZeroMean[i + shift];
     }
     
+    const count = end - start;
     if (count > 0) {
       cov /= count;
       if (cov > maxCov) {

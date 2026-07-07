@@ -336,14 +336,30 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
 
         // 1. 先對 actual 數據做時間範圍 Slice（以實測實際值為基準時間軸）
         const [startIdxAct, endIdxAct] = sliceByTimeRange(tActRaw, req.timeStartUs, req.timeEndUs);
-        const tRef = tActRaw.subarray(startIdxAct, endIdxAct);
-        const yAct = yActRaw.subarray(startIdxAct, endIdxAct) instanceof Float32Array 
+        let tRef = tActRaw.subarray(startIdxAct, endIdxAct);
+        let yAct = yActRaw.subarray(startIdxAct, endIdxAct) instanceof Float32Array 
           ? (yActRaw.subarray(startIdxAct, endIdxAct) as Float32Array)
           : new Float32Array(yActRaw.subarray(startIdxAct, endIdxAct));
 
         if (tRef.length < 5) {
           self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: '所選時間區間內數據點過少，無法對齊 PID' });
           return;
+        }
+
+        // 當數據點過多時 (> 50,000 點) 進行等間距降採樣，防止瀏覽器或線程卡死，並加速圖表渲染
+        const maxPoints = 50000;
+        if (tRef.length > maxPoints) {
+          const factor = Math.ceil(tRef.length / maxPoints);
+          const downN = Math.floor(tRef.length / factor);
+          const tRefDown = new Float64Array(downN);
+          const yActDown = new Float32Array(downN);
+          for (let i = 0; i < downN; i++) {
+            const idx = i * factor;
+            tRefDown[i] = tRef[idx];
+            yActDown[i] = yAct[idx];
+          }
+          tRef = tRefDown;
+          yAct = yActDown;
         }
 
         // 2. 對 setpoint 進行對齊與延遲偵測
