@@ -29,12 +29,19 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
     const topics = state.summary.topics;
     
     if (type === 'accel') {
-      // 優先使用 sensor_combined，以符合 accelerometer_m_s2[n] 要求，其次 fallback 至 sensor_accel
-      const match = topics.find(t => t.name === 'sensor_combined' || t.name === 'sensor_accel');
+      // 優先使用 vehicle_acceleration (經過飛控濾波與去偏差的加速度，與控制器行為最吻合)，
+      // 其次使用 sensor_combined (Raw 資料)，最後 fallback 至 sensor_accel
+      const match = topics.find(t => 
+        t.name === 'vehicle_acceleration' || 
+        t.name === 'sensor_combined' || 
+        t.name === 'sensor_accel'
+      );
       if (!match) return null;
       
       let fields: string[] = [];
-      if (match.name === 'sensor_combined') {
+      if (match.name === 'vehicle_acceleration') {
+        fields = match.fields.filter(f => f.startsWith('xyz'));
+      } else if (match.name === 'sensor_combined') {
         fields = match.fields.filter(f => f.startsWith('accelerometer_m_s2'));
       } else {
         fields = match.fields.filter(f => 
@@ -47,12 +54,19 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
       fields.sort();
       return { topicName: match.name, multiId: match.multiId, fields };
     } else {
-      // 優先使用 sensor_combined，其次 fallback 至 sensor_gyro
-      const match = topics.find(t => t.name === 'sensor_combined' || t.name === 'sensor_gyro');
+      // 優先使用 vehicle_angular_velocity (經過飛控濾波與去偏差的角速度，代表真正進入控制迴路的噪聲)，
+      // 其次使用 sensor_combined (Raw 資料)，最後 fallback 至 sensor_gyro
+      const match = topics.find(t => 
+        t.name === 'vehicle_angular_velocity' || 
+        t.name === 'sensor_combined' || 
+        t.name === 'sensor_gyro'
+      );
       if (!match) return null;
       
       let fields: string[] = [];
-      if (match.name === 'sensor_combined') {
+      if (match.name === 'vehicle_angular_velocity') {
+        fields = match.fields.filter(f => f.startsWith('xyz'));
+      } else if (match.name === 'sensor_combined') {
         fields = match.fields.filter(f => f.startsWith('gyro_rad'));
       } else {
         fields = match.fields.filter(f => 
