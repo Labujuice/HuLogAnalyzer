@@ -18,67 +18,53 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
   const [sensorType, setSensorType] = useState<'accel' | 'gyro'>('accel');
   const [isCalculating, setIsCalculating] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [activeSource, setActiveSource] = useState<{ name: string; freq: number } | null>(null);
   
   // 記錄上一次計算的資訊
   const [computedRange, setComputedRange] = useState<{ startS: number; endS: number } | null>(null);
   const [peaks, setPeaks] = useState<{ axis: string; freq: number; amp: number }[]>([]);
 
-  // 找尋合適的 Topic 名稱
+  // 找尋合適的 Topic 名稱，依據實際的資料頻率選取最優頻率的主題
   const findSensorTopic = useCallback((type: 'accel' | 'gyro') => {
     if (!state.summary) return null;
     const topics = state.summary.topics;
     
-    if (type === 'accel') {
-      // 優先選取更新頻率高（通常為 1000Hz 以上）的主題以防 Nyquist 頻率不足與訊號混疊折返：
-      // sensor_accel (高頻) -> sensor_combined (中頻 200~400Hz) -> vehicle_acceleration (低頻 EKF 狀態)
-      const match = topics.find(t => 
-        t.name === 'sensor_accel' || 
-        t.name === 'sensor_combined' || 
-        t.name === 'vehicle_acceleration'
-      );
-      if (!match) return null;
+    const candidates = type === 'accel' 
+      ? ['sensor_accel', 'sensor_combined', 'vehicle_acceleration']
+      : ['sensor_gyro', 'sensor_combined', 'vehicle_angular_velocity'];
       
-      let fields: string[] = [];
-      if (match.name === 'sensor_accel') {
-        fields = match.fields.filter(f => 
-          f.startsWith('x') || 
-          f === 'y' || 
-          f === 'z' || 
-          f.startsWith('accelerometer_m_s2')
-        );
-      } else if (match.name === 'sensor_combined') {
-        fields = match.fields.filter(f => f.startsWith('accelerometer_m_s2'));
-      } else {
-        fields = match.fields.filter(f => f.startsWith('xyz'));
-      }
-      fields.sort();
-      return { topicName: match.name, multiId: match.multiId, fields };
+    // 找出目前日誌中確實存在且含有合適欄位的主題
+    const matchedTopics = topics.filter(t => candidates.includes(t.name));
+    if (matchedTopics.length === 0) return null;
+    
+    // 依據實際記錄頻率 (freqHz) 從大到小排序，確保選取頻率最高的主題
+    matchedTopics.sort((a, b) => b.freqHz - a.freqHz);
+    const match = matchedTopics[0];
+    
+    let fields: string[] = [];
+    if (match.name === 'sensor_accel' || match.name === 'sensor_gyro') {
+      fields = match.fields.filter(f => 
+        f.startsWith('x') || 
+        f === 'y' || 
+        f === 'z' || 
+        f.startsWith('accelerometer_m_s2') || 
+        f.startsWith('gyro_rad')
+      );
+    } else if (match.name === 'sensor_combined') {
+      fields = match.fields.filter(f => 
+        type === 'accel' ? f.startsWith('accelerometer_m_s2') : f.startsWith('gyro_rad')
+      );
     } else {
-      // 優先選取更新頻率高（通常為 1000Hz 以上）的主題：
-      // sensor_gyro (高頻) -> sensor_combined (中頻 200~400Hz) -> vehicle_angular_velocity (低頻 EKF 狀態)
-      const match = topics.find(t => 
-        t.name === 'sensor_gyro' || 
-        t.name === 'sensor_combined' || 
-        t.name === 'vehicle_angular_velocity'
-      );
-      if (!match) return null;
-      
-      let fields: string[] = [];
-      if (match.name === 'sensor_gyro') {
-        fields = match.fields.filter(f => 
-          f.startsWith('x') || 
-          f === 'y' || 
-          f === 'z' || 
-          f.startsWith('gyro_rad')
-        );
-      } else if (match.name === 'sensor_combined') {
-        fields = match.fields.filter(f => f.startsWith('gyro_rad'));
-      } else {
-        fields = match.fields.filter(f => f.startsWith('xyz'));
-      }
-      fields.sort();
-      return { topicName: match.name, multiId: match.multiId, fields };
+      fields = match.fields.filter(f => f.startsWith('xyz'));
     }
+    
+    fields.sort();
+    return { 
+      topicName: match.name, 
+      multiId: match.multiId, 
+      fields, 
+      freqHz: match.freqHz 
+    };
   }, [state.summary]);
 
   const fftCacheRef = useRef<Map<string, {
@@ -99,8 +85,10 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
     const sensorInfo = findSensorTopic(sensorType);
     if (!sensorInfo || sensorInfo.fields.length < 3) {
       setErrorMsg(state.language === 'en' ? 'No matched sensor topic fields found.' : '找不到相符的感測器欄位數據。');
+      setActiveSource(null);
       return;
     }
+    setActiveSource({ name: sensorInfo.topicName, freq: sensorInfo.freqHz });
 
     const startUs = state.playback.startTimeUs;
     const endUs = state.playback.endTimeUs;
@@ -325,19 +313,28 @@ export function VibrationPanel({ panelId, currentTimeUs }: VibrationPanelProps) 
 
       {/* 狀態與資訊列 */}
       <div className={styles.infoBar}>
-        {computedRange ? (
-          <span className={styles.rangeInfo}>
-            {state.language === 'en'
-              ? `Computed Range: ${computedRange.startS.toFixed(1)}s - ${computedRange.endS.toFixed(1)}s`
-              : `計算區間: ${computedRange.startS.toFixed(1)}秒 - ${computedRange.endS.toFixed(1)}秒`}
-          </span>
-        ) : (
-          <span className={styles.hintInfo}>
-            {state.language === 'en'
-              ? 'Zoom on the timeline to automatically recalculate'
-              : '在時序圖上縮放會自動觸發解算'}
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {computedRange ? (
+            <span className={styles.rangeInfo}>
+              {state.language === 'en'
+                ? `Computed Range: ${computedRange.startS.toFixed(1)}s - ${computedRange.endS.toFixed(1)}s`
+                : `計算區間: ${computedRange.startS.toFixed(1)}秒 - ${computedRange.endS.toFixed(1)}秒`}
+            </span>
+          ) : (
+            <span className={styles.hintInfo}>
+              {state.language === 'en'
+                ? 'Zoom on the timeline to automatically recalculate'
+                : '在時序圖上縮放會自動觸發解算'}
+            </span>
+          )}
+
+          {activeSource && (
+            <span className={styles.sourceBadge}>
+              📊 {state.language === 'en' ? 'Source: ' : '數據來源: '}
+              <strong>{activeSource.name}</strong> ({activeSource.freq.toFixed(1)} Hz)
+            </span>
+          )}
+        </div>
 
         {peaks.length > 0 && (
           <div className={styles.peaksWrap}>

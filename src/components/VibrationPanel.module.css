@@ -139,3 +139,12 @@
   border: 1px dashed #334155;
   border-radius: 4px;
 }
+
+.sourceBadge {
+  background-color: #1e293b;
+  color: #38bdf8;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
