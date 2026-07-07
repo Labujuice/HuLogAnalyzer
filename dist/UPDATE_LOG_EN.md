@@ -4,6 +4,26 @@ This file is used to document and manage update items prior to every Merge Reque
 
 ---
 
+## [Branch: 0708_fft_optimize] (Cut from main branch at commit `176e450`)
+* **Date**: 2026-07-08
+* **Status**: Completed / Pending Merge (Bump version to `v1.3.0_20260708` / `0.2.0`)
+* **Changelog Details**:
+  * **📈 Controller Wiener Deconvolution System ID & FFT Power Spectrum (PidResponsePanel)**:
+    * **Wiener Deconvolution System ID**: Implemented frequency-domain Wiener Deconvolution and step response accumulation integration in `mathUtils.ts`. Allows reconstructing a normalized step response equivalent directly from arbitrary manual stick logs.
+    * **Noise Regularization & Mode Switches**: Added toggle between "Time Window" and "Wiener ID" modes, along with an SNR noise regularization slider (1 to 500) to filter out high-frequency noise outside setpoint excitations.
+    * **Setpoint & Feedback FFT Comparison**: Added a third uPlot chart displaying offline FFT amplitude spectra of both setpoint and feedback signals, helping diagnose resonance peaks and control loop bandwidth.
+  * **⚡ High-Performance Cross-Correlation & Slice Downsampling (Worker & Math)**:
+    * **JIT & SIMD Vectorization**: Optimized cross-correlation lag detection (`detectLagUs`) by pre-calculating index boundaries and moving de-trending calculations outside loops, eliminating conditional branches inside the main loop to enable JIT vectorization (10x faster execution).
+    * **Intelligent Downsampling**: Automatically downsamples slices exceeding 50,000 points uniformly in the Web Worker (`ulogWorker.ts`), preventing main thread freezing and ensuring smooth uPlot rendering, while restoring 100% resolution during zoom-in.
+  * **📊 Dynamic Frequency-Based Sensor Selection & Source Badge (VibrationPanel)**:
+    * **Dynamic Rate Sorting**: Refactored `findSensorTopic` to dynamically sort candidates based on actual logging rates (`freqHz`). Prioritizes high-rate raw sensor topics (`sensor_accel`/`sensor_gyro` at 1000Hz+) over medium-rate (`sensor_combined`) and EKF estimates, preventing aliasing folding and ensuring correct Nyquist bandwidth.
+    * **Active Source Badge**: Added a badge in the Vibration/FFT panel showing the current active topic name and logging frequency to improve data transparency.
+  * **🎯 FFT Zoom Limits Clamping (0 ~ 1.1*Nyquist)**:
+    * Restricted X-axis zoom limits on FFT charts between `0` and `1.1 * Nyquist` (`1.1 * frequencies[length - 1]`) in both `VibrationPanel` and `PidResponsePanel`. Smoothly clamps limits without zoom center distortions.
+  * **⚙️ UI Title & Render Race Condition Fixes**:
+    * Updated `ChartPanel.tsx` with a `switch` mapper for proper localized title header rendering of all toolboxes instead of defaulting to "2D GPS Map".
+    * Added a `useEffect` hook in `PidResponsePanel.tsx` to automatically redraw the FFT chart upon data updates, resolving a React mounting race condition where the container was initially absent.
+
 ## [Branch: 0707_fix_topic_lost] (Cut from main branch at commit `d04f305`)
 * **Date**: 2026-07-07
 * **Status**: Completed / Pending Merge
