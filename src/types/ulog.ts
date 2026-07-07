@@ -89,7 +89,7 @@ export type WorkerRequest =
   | { type: 'PARSE_FILE'; buffer: ArrayBuffer }
   | { type: 'GET_TOPIC_DATA'; topicName: string; multiId: number; fields: string[] }
   | { type: 'COMPUTE_FFT'; requestId: string; topicName: string; multiId: number; fieldName: string; timeStartUs: number; timeEndUs: number }
-  | { type: 'ALIGN_PID_DATA'; requestId: string; setpointTopic: string; setpointField: string; actualTopic: string; actualField: string; timeStartUs: number; timeEndUs: number }
+  | { type: 'ALIGN_PID_DATA'; requestId: string; setpointTopic: string; setpointField: string; actualTopic: string; actualField: string; timeStartUs: number; timeEndUs: number; snr?: number }
   | { type: 'RUN_CUSTOM_CALC'; requestId: string; config: any };
 
 export type WorkerResponse =
@@ -99,7 +99,7 @@ export type WorkerResponse =
   | { type: 'TOPIC_DATA'; topicName: string; multiId: number; data: TopicTransferData }
   | { type: 'TOPIC_ERROR'; topicName: string; message: string }
   | { type: 'FFT_COMPLETE'; requestId: string; topicName: string; fieldName: string; frequencies: Float64Array; amplitudes: Float32Array }
-  | { type: 'PID_DATA_ALIGNED'; requestId: string; timestamps: Float64Array; setpointAligned: Float32Array; actualAligned: Float32Array; rmse: number; corr: number; lagUs: number }
+  | { type: 'PID_DATA_ALIGNED'; requestId: string; timestamps: Float64Array; setpointAligned: Float32Array; actualAligned: Float32Array; rmse: number; corr: number; lagUs: number; wienerStep?: Float32Array; fftFrequencies?: Float64Array; fftSetpointAmplitudes?: Float32Array; fftActualAmplitudes?: Float32Array }
   | { type: 'CUSTOM_CALC_COMPLETE'; requestId: string; outputId: string; timestamps: Float64Array; values: Float32Array }
   | { type: 'CALC_ERROR'; requestId: string; message: string };
 
