@@ -200,7 +200,7 @@ export function LandingPage() {
             className={styles.footerLink}
             title={language === 'zh' ? '查看更新日誌' : 'View Update Log'}
           >
-            v1.3.0_20260708
+            v1.3.1_20260711
           </a>
         </footer>
       </div>

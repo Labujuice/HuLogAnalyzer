@@ -4,6 +4,15 @@
 
 ---
 
+## [Branch: fix_3D_accel_error] (基於 `main` 分支 `f5d4567` 節點切出)
+* **日期**：2026-07-11
+* **更新狀態**：已完成開發 / 準備合併 (Bump version to `v1.3.1_20260711` / `0.2.1`)
+* **更新項目明細**：
+  * **🛸 WebGL 支援檢測與 3D 視圖異常降級處理 (Attitude3dPanel)**：
+    * **主動檢測 WebGL 支援度**：在面板載入時，透過建立臨時 Canvas 檢測瀏覽器及硬體是否支援 WebGL（包含 `window.WebGLRenderingContext` 以及 `webgl` / `experimental-webgl` 渲染上下文），避免直接嘗試實例化 `WebGLRenderer` 造成拋出異常而導致整個頁面黑畫面。
+    * **建立 Three.js WebGLRenderer 防禦處理**：使用 `try-catch` 保護 `THREE.WebGLRenderer` 的初始化邏輯，當硬體加速未開啟或顯示晶片驅動問題導致拋錯時，能被安全捕獲。
+    * **WebGL 錯誤提示降級介面**：WebGL 載入失敗後，不再維持黑畫面，而是呈現多國語言的警告畫面。說明是由於瀏覽器「未開啟網頁硬體加速」或不支援 WebGL，並指引使用者如何前往瀏覽器設定中開啟「在可用時使用圖形加速」並重新載入網頁，顯著提升了容錯性與使用者體驗。
+
 ## [Branch: 0708_fft_optimize] (基於 `main` 分支 `176e450` 節點切出)
 * **日期**：2026-07-08
 * **更新狀態**：已完成開發 / 準備合併 (Bump version to `v1.3.0_20260708` / `0.2.0`)
