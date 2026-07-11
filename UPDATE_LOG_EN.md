@@ -23,6 +23,14 @@ This file is used to document and manage update items prior to every Merge Reque
   * **⚙️ UI Title & Render Race Condition Fixes**:
     * Updated `ChartPanel.tsx` with a `switch` mapper for proper localized title header rendering of all toolboxes instead of defaulting to "2D GPS Map".
     * Added a `useEffect` hook in `PidResponsePanel.tsx` to automatically redraw the FFT chart upon data updates, resolving a React mounting race condition where the container was initially absent.
+## [Branch: fix_3D_accel_error] (Cut from main branch at commit `4219fe9`)
+* **Date**: 2026-07-11
+* **Status**: Completed / Pending Merge
+* **Changelog Details**:
+  * **🛸 WebGL Support Detection & 3D Panel Fallback Handling (Attitude3dPanel)**:
+    * **Proactive WebGL Capability Detection**: Added check using a temporary Canvas to verify `window.WebGLRenderingContext` and `webgl`/`experimental-webgl` context support on initialization, preventing unhandled exceptions that lead to a black screen.
+    * **Robust `WebGLRenderer` Instantiation**: Wrapped `new THREE.WebGLRenderer` in a `try-catch` block to safely catch errors caused by missing GPU drivers or disabled hardware acceleration.
+    * **Informative WebGL Error UI**: Introduced a clean fallback UI with multi-language warnings when WebGL is unavailable, instructing users to check and enable "Use graphics acceleration when available" in their browser settings.
 
 ## [Branch: 0707_fix_topic_lost] (Cut from main branch at commit `d04f305`)
 * **Date**: 2026-07-07
