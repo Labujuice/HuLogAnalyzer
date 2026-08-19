@@ -4,6 +4,15 @@
 
 ---
 
+## [Branch: 0819_fix_large_log] (基於 `main` 分支 `204084a` 節點切出)
+* **日期**：2026-08-19
+* **更新狀態**：已完成開發 / 準備合併 (Bump version to `0.2.2`)
+* **更新項目明細**：
+  * **⚡️ 記憶體優化與 1GB 超大日誌支援 (ULogParser & ulogWorker)**：
+    * **雙階段掃描與記憶體預分配（Two-Pass Parsing）**：重構 ULog 檔案解析機制。第一階段僅掃描日誌結構統計各 Topic 的 Data 訊息量並註冊訂閱；之後直接預先分配精確大小 of TypedArrays（如 `Float64Array`, `Float32Array`, `Int32Array`, `Int8Array`）。第二階段解析時將二進位數據直接寫入預分配陣列，免除標準 JS 陣列（`number[]`）動態擴容與數字裝箱（Boxing）的巨大記憶體開銷，解決 1GB 檔案載入時 V8 引擎 OOM 崩潰問題。
+    * **原始 Buffer 即時回收機制**：在 `parse()` 成功後，主動清空 `ULogParser` 內部的原始二進位 Buffer 引用 (`this.buf` 與 `this.view`)，確保 GC 能立刻釋放大至 1GB 的原始檔案記憶體，使記憶體佔用降低 50% 以上。
+    * **快取 TypedArray 轉移防護**：修復 Web Worker `postMessage` 轉移 ArrayBuffer 所有權時導致 Worker 內部 TypedArray 遭 `detached`（失效）的問題。在非降採樣傳輸與 PID 數據對齊時，對 TypedArray 進行 `.slice()` 複製，保證 Worker 快取的完整性以供後續計算（FFT/PID/代數運算）正常運作。
+
 ## [Branch: fix_3D_accel_error] (基於 `main` 分支 `f5d4567` 節點切出)
 * **日期**：2026-07-11
 * **更新狀態**：已完成開發 / 準備合併 (Bump version to `v1.3.1_20260711` / `0.2.1`)
