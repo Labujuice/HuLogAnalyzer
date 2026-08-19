@@ -192,14 +192,17 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
             transferables.push(finalTimestamps.buffer as ArrayBuffer);
           }
         } else {
-          // 不需要降採樣，正常升級與傳輸
-          transferables.push(finalTimestamps.buffer as ArrayBuffer);
+          // 不需要降採樣，正常升級與傳輸 (複製一份以防 detaching parser 內部的 TypedArray)
+          const tsCopy = finalTimestamps.slice();
+          finalTimestamps = tsCopy;
+          transferables.push(tsCopy.buffer as ArrayBuffer);
+
           for (const [fieldName, arr] of Object.entries(topicData.fields)) {
             let finalArr: Float32Array | Float64Array | Int32Array;
             if (arr instanceof Int8Array) {
-              finalArr = new Int32Array(arr);
+              finalArr = new Int32Array(arr); // 已是新配置，不需要 slice
             } else {
-              finalArr = arr as Float32Array | Float64Array | Int32Array;
+              finalArr = arr.slice() as Float32Array | Float64Array | Int32Array;
             }
             fieldBuffers[fieldName] = finalArr;
             transferables.push(finalArr.buffer as ArrayBuffer);
@@ -394,16 +397,22 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         const fftSet = computeFFTAmplitude(ySetFinal, sampleRate);
         const fftAct = computeFFTAmplitude(yAct, sampleRate);
 
+        // 為了防範 detaching parser 內部的 TypedArray，我們在此複製一份 TypedArray 後再進行傳輸
+        const tRefCopy = tRef.slice();
+        const ySetFinalCopy = ySetFinal.slice();
+        const yActCopy = yAct.slice();
+        const wienerStepCopy = wienerStep.slice();
+
         const resp: WorkerResponse = {
           type: 'PID_DATA_ALIGNED',
           requestId: req.requestId,
-          timestamps: tRef,
-          setpointAligned: ySetFinal,
-          actualAligned: yAct,
+          timestamps: tRefCopy,
+          setpointAligned: ySetFinalCopy,
+          actualAligned: yActCopy,
           rmse,
           corr,
           lagUs,
-          wienerStep,
+          wienerStep: wienerStepCopy,
           fftFrequencies: fftSet.frequencies,
           fftSetpointAmplitudes: fftSet.amplitudes,
           fftActualAmplitudes: fftAct.amplitudes
@@ -411,10 +420,10 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
 
         // Zero-copy transfer
         const transferables: ArrayBuffer[] = [
-          tRef.buffer as ArrayBuffer,
-          ySetFinal.buffer as ArrayBuffer,
-          yAct.buffer as ArrayBuffer,
-          wienerStep.buffer as ArrayBuffer
+          tRefCopy.buffer as ArrayBuffer,
+          ySetFinalCopy.buffer as ArrayBuffer,
+          yActCopy.buffer as ArrayBuffer,
+          wienerStepCopy.buffer as ArrayBuffer
         ];
         if (fftSet.frequencies.buffer) {
           transferables.push(fftSet.frequencies.buffer as ArrayBuffer);

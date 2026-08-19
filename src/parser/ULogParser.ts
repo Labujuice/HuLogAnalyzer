@@ -63,11 +63,12 @@ export class ULogParser {
   private parameters: Record<string, number | string> = {};
 
   // Topic 數據儲存（欄位式）
-  // key: "topicName:multiId"  value: 各欄位的 number[] (解析完再轉 TypedArray)
+  // key: "topicName:multiId"
   private rawTopicData: Map<string, {
     sub: ULogSubscription;
-    timestamps: number[];
-    fields: Record<string, number[]>;
+    timestamps: Float64Array;
+    fields: Record<string, Float64Array | Float32Array | Int32Array | Int8Array>;
+    writeIndex: number;
   }> = new Map();
 
   private headerVersion: number = 0;
@@ -103,11 +104,26 @@ export class ULogParser {
     onProgress?.(0.10, '解析訊息格式定義...');
     this._parseDefinitions();
 
-    onProgress?.(0.30, '掃描數據區塊...');
+    // 第一遍掃描：統計每個 Topic 消息數以預先分配記憶體
+    onProgress?.(0.20, '預先掃描日誌結構...');
+    const messageCounts = this._scanDataSection(onProgress);
+
+    // 分配 TypedArrays 記憶體空間
+    onProgress?.(0.25, '分配記憶體空間...');
+    this._allocateTypedArrays(messageCounts);
+
+    // 第二遍解析：將二進位數據直接寫入預先分配的 TypedArrays
+    onProgress?.(0.30, '解析數據區區塊...');
     this._parseData(onProgress);
 
     onProgress?.(0.95, '整理資料結構...');
-    return this._buildSummary();
+    const summary = this._buildSummary();
+
+    // 釋放原始 ULog 二進位 Buffer，以節省大量記憶體（1GB 檔案可立刻釋放約 1GB 記憶體）
+    this.buf = new Uint8Array(0);
+    this.view = new DataView(new ArrayBuffer(0));
+
+    return summary;
   }
 
   /**
@@ -116,32 +132,18 @@ export class ULogParser {
   getTopicData(topicName: string, multiId: number, requestedFields?: string[]): ULogTopicData | null {
     const key = `${topicName}:${multiId}`;
     const raw = this.rawTopicData.get(key);
-    if (!raw || raw.timestamps.length === 0) return null;
+    if (!raw || raw.writeIndex === 0) return null;
 
-    const count = raw.timestamps.length;
-    const timestamps = new Float64Array(raw.timestamps);
+    const count = raw.writeIndex;
+    const timestamps = raw.timestamps.length === count ? raw.timestamps : raw.timestamps.subarray(0, count);
 
     const fields: Record<string, Float32Array | Float64Array | Int32Array | Int8Array> = {};
     const fieldsToConvert = requestedFields ?? Object.keys(raw.fields);
 
     for (const fname of fieldsToConvert) {
       if (!(fname in raw.fields)) continue;
-      const nums = raw.fields[fname];
-      // 判斷欄位型別決定用哪種 TypedArray
-      const fieldDef = raw.sub.format.fields.find(f => f.name === fname);
-      if (fieldDef) {
-        if (fieldDef.type === 'double' || fieldDef.type === 'int64_t' || fieldDef.type === 'uint64_t') {
-          fields[fname] = new Float64Array(nums);
-        } else if (fieldDef.type === 'int8_t' || fieldDef.type === 'bool') {
-          fields[fname] = new Int8Array(nums);
-        } else if (fieldDef.type === 'int32_t' || fieldDef.type === 'uint32_t') {
-          fields[fname] = new Int32Array(nums);
-        } else {
-          fields[fname] = new Float32Array(nums);
-        }
-      } else {
-        fields[fname] = new Float32Array(nums);
-      }
+      const arr = raw.fields[fname];
+      fields[fname] = arr.length === count ? arr : arr.subarray(0, count);
     }
 
     return { topicName, multiId, timestamps, fields, count };
@@ -412,22 +414,7 @@ export class ULogParser {
 
     const sub: ULogSubscription = { msgId, topicName, multiId, format };
     this.subscriptions.set(msgId, sub);
-
-    const key = `${topicName}:${multiId}`;
-    if (!this.rawTopicData.has(key)) {
-      const fields: Record<string, number[]> = {};
-      for (const f of format.fields) {
-        if (f.name === 'timestamp') continue;
-        if (f.arraySize > 1) {
-          for (let i = 0; i < f.arraySize; i++) {
-            fields[`${f.name}[${i}]`] = [];
-          }
-        } else {
-          fields[f.name] = [];
-        }
-      }
-      this.rawTopicData.set(key, { sub, timestamps: [], fields });
-    }
+    this.pos = msgEnd;
   }
 
   private _parseDataMsg(msgEnd: number) {
@@ -441,10 +428,17 @@ export class ULogParser {
 
     const startPos = this.pos;
     const fmt = sub.format;
+    const idx = raw.writeIndex;
+
+    // 防禦性檢查：防範超出預先分配的陣列長度
+    if (idx >= raw.timestamps.length) {
+      this.pos = msgEnd;
+      return;
+    }
 
     // 讀取 timestamp（uint64_t, 微秒）
     const ts = Number(this.view.getBigUint64(startPos, true));
-    raw.timestamps.push(ts);
+    raw.timestamps[idx] = ts;
 
     // 讀取各欄位
     for (const field of fmt.fields) {
@@ -455,12 +449,17 @@ export class ULogParser {
         for (let i = 0; i < field.arraySize; i++) {
           const arrFieldName = `${field.name}[${i}]`;
           const arrFieldPos = fPos + i * FIELD_SIZE[field.type];
-          raw.fields[arrFieldName]?.push(this._readFieldValue(arrFieldPos, field.type));
+          const val = this._readFieldValue(arrFieldPos, field.type);
+          const arr = raw.fields[arrFieldName];
+          if (arr) (arr as any)[idx] = val;
         }
       } else {
-        raw.fields[field.name]?.push(this._readFieldValue(fPos, field.type));
+        const val = this._readFieldValue(fPos, field.type);
+        const arr = raw.fields[field.name];
+        if (arr) (arr as any)[idx] = val;
       }
     }
+    raw.writeIndex++;
 
     this.pos = msgEnd;
   }
@@ -520,21 +519,113 @@ export class ULogParser {
 
   // ─── 建立 Summary ────────────────────────────────────────────────────────────
 
+  private _scanDataSection(onProgress?: ParseProgressCallback): Map<string, number> {
+    const dataStartPos = this.pos;
+    const totalSize = this.buf.length;
+    let lastReportPos = this.pos;
+
+    const messageCounts = new Map<string, number>();
+
+    while (this.pos < this.buf.length) {
+      if (this.pos + 3 > this.buf.length) break;
+
+      const msgLen = this.view.getUint16(this.pos, true);
+      const msgType = this.buf[this.pos + 2];
+      this.pos += 3;
+
+      if (this.pos + msgLen > this.buf.length) break;
+      const msgEnd = this.pos + msgLen;
+
+      switch (msgType) {
+        case MSG_TYPE.ADD_LOGGED_MSG:
+          this._parseAddLoggedMsg(msgEnd);
+          break;
+        case MSG_TYPE.DATA: {
+          const msgId = this.view.getUint16(this.pos, true);
+          const sub = this.subscriptions.get(msgId);
+          if (sub) {
+            const key = `${sub.topicName}:${sub.multiId}`;
+            messageCounts.set(key, (messageCounts.get(key) || 0) + 1);
+          }
+          this.pos = msgEnd;
+          break;
+        }
+        default:
+          this.pos = msgEnd;
+          break;
+      }
+
+      if (this.pos - lastReportPos > 10 * 1024 * 1024) {
+        const ratio = 0.15 + (this.pos / totalSize) * 0.10;
+        onProgress?.(Math.min(ratio, 0.25), `預先掃描數據... (${(this.pos / 1024 / 1024).toFixed(1)} MB)`);
+        lastReportPos = this.pos;
+      }
+    }
+
+    this.pos = dataStartPos;
+    return messageCounts;
+  }
+
+  private _allocateTypedArrays(messageCounts: Map<string, number>) {
+    this.rawTopicData.clear();
+
+    for (const sub of this.subscriptions.values()) {
+      const key = `${sub.topicName}:${sub.multiId}`;
+      if (this.rawTopicData.has(key)) continue;
+
+      const totalCount = messageCounts.get(key) || 0;
+      const timestamps = new Float64Array(totalCount);
+      const fields: Record<string, Float64Array | Float32Array | Int32Array | Int8Array> = {};
+
+      const format = sub.format;
+      for (const f of format.fields) {
+        if (f.name === 'timestamp') continue;
+
+        const allocateArray = (size: number) => {
+          if (f.type === 'double' || f.type === 'int64_t' || f.type === 'uint64_t') {
+            return new Float64Array(size);
+          } else if (f.type === 'int8_t' || f.type === 'bool') {
+            return new Int8Array(size);
+          } else if (f.type === 'int32_t' || f.type === 'uint32_t') {
+            return new Int32Array(size);
+          } else {
+            return new Float32Array(size);
+          }
+        };
+
+        if (f.arraySize > 1) {
+          for (let i = 0; i < f.arraySize; i++) {
+            fields[`${f.name}[${i}]`] = allocateArray(totalCount);
+          }
+        } else {
+          fields[f.name] = allocateArray(totalCount);
+        }
+      }
+
+      this.rawTopicData.set(key, {
+        sub,
+        timestamps,
+        fields,
+        writeIndex: 0,
+      });
+    }
+  }
+
   private _buildSummary(): ULogSummary {
     let startTs = Infinity;
     let endTs = 0;
 
     const topics = [];
     for (const [key, raw] of this.rawTopicData) {
-      if (raw.timestamps.length === 0) continue;
+      if (raw.writeIndex === 0) continue;
       const ts = raw.timestamps;
       const first = ts[0];
-      const last = ts[ts.length - 1];
+      const last = ts[raw.writeIndex - 1];
       if (first < startTs) startTs = first;
       if (last > endTs) endTs = last;
 
       const durationUs = last - first;
-      const freqHz = durationUs > 0 ? Math.round((ts.length / durationUs) * 1e6) : 0;
+      const freqHz = durationUs > 0 ? Math.round((raw.writeIndex / durationUs) * 1e6) : 0;
 
       const fieldTypes: Record<string, ULogFieldType> = {};
       const fields: string[] = [];
@@ -555,7 +646,7 @@ export class ULogParser {
       topics.push({
         name: raw.sub.topicName,
         multiId: raw.sub.multiId,
-        count: ts.length,
+        count: raw.writeIndex,
         freqHz,
         fields,
         fieldTypes,
@@ -569,8 +660,8 @@ export class ULogParser {
     const gpsKey = 'vehicle_gps_position:0';
     const gpsData = this.rawTopicData.get(gpsKey);
     let utcOffsetUs = 0;
-    if (gpsData && gpsData.fields['time_utc_usec'] && gpsData.fields['time_utc_usec'].length > 0) {
-      const utcTime = gpsData.fields['time_utc_usec'][0];
+    if (gpsData && gpsData.writeIndex > 0) {
+      const utcTime = (gpsData.fields['time_utc_usec'] as any)[0];
       const logTime = gpsData.timestamps[0];
       if (utcTime > 0) {
         utcOffsetUs = utcTime - logTime;
