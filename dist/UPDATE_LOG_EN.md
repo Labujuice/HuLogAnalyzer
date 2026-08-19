@@ -4,6 +4,15 @@ This file is used to document and manage update items prior to every Merge Reque
 
 ---
 
+## [Branch: 0819_fix_large_log] (Cut from main branch at commit `204084a`)
+* **Date**: 2026-08-19
+* **Status**: Completed / Pending Merge (Bump version to `0.2.2`)
+* **Changelog Details**:
+  * **⚡️ Memory Optimization & 1GB Large Log Support (ULogParser & ulogWorker)**:
+    * **Two-Pass Parsing & TypedArray Pre-allocation**: Refactored the ULog parser. The first pass scans the structure, counts data messages per topic, and registers subscriptions. It then pre-allocates exact-sized TypedArrays (`Float64Array`, `Float32Array`, `Int32Array`, `Int8Array`). The second pass decodes binary data directly into these arrays, eliminating the massive memory overhead of standard JS array (`number[]`) dynamic resizing and number boxing, resolving browser OOM crashes on 1GB log files.
+    * **Immediate Raw Buffer Release**: Clears the reference to the original binary buffer (`this.buf` and `this.view`) inside `ULogParser` right after parsing completes, allowing the garbage collector to immediately free up to 1GB of memory.
+    * **Detached Buffer Protection**: Clones (`.slice()`) the typed arrays before transferring their buffers in worker message transactions. This prevents detaching the worker's cached data, ensuring subsequent analysis computations (FFT, PID alignment, and custom calculations) continue to work properly.
+
 ## [Branch: fix_3D_accel_error] (Cut from main branch at commit `f5d4567`)
 * **Date**: 2026-07-11
 * **Status**: Completed / Pending Merge (Bump version to `v1.3.1_20260711` / `0.2.1`)
