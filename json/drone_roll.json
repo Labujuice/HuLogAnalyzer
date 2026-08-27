@@ -1,0 +1,22 @@
+{
+  "id": "drone-euler-roll",
+  "name": "無人機 Roll 橫滾角 (度)",
+  "targetChart": {
+    "title": "Roll Angle",
+    "yLabel": "Roll (deg)",
+    "color": "#3b82f6"
+  },
+  "operations": [
+    {
+      "type": "expression",
+      "formula": "atan2(2 * (q0 * q1 + q2 * q3), 1 - 2 * (q1^2 + q2^2)) * 57.2957795",
+      "variables": {
+        "q0": "vehicle_attitude.q[0]",
+        "q1": "vehicle_attitude.q[1]",
+        "q2": "vehicle_attitude.q[2]",
+        "q3": "vehicle_attitude.q[3]"
+      },
+      "output": "roll_deg"
+    }
+  ]
+}
