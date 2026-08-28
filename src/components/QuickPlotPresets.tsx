@@ -99,7 +99,7 @@ export function QuickPlotPresets() {
     custom: false
   });
   
-  const [customConfigs, setCustomConfigs] = useState<CustomCalcConfig[]>([]);
+  const [customConfigs, setCustomConfigs] = useState<CustomCalcConfig[]>(() => customCalcRegistry.list());
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const toggleCollapse = (id: string) => {
@@ -150,6 +150,12 @@ export function QuickPlotPresets() {
     reader.readAsText(file);
     // 重設 input
     e.target.value = '';
+  };
+
+  const handleDeleteCustom = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    customCalcRegistry.remove(id);
+    setCustomConfigs(customCalcRegistry.list());
   };
 
   const isEn = state.language === 'en';
@@ -241,6 +247,13 @@ export function QuickPlotPresets() {
                     <span className={styles.itemLabel}>
                       {cfg.name} <span className={styles.customBadge}>Custom</span>
                     </span>
+                    <button
+                      className={styles.deleteBtn}
+                      onClick={(e) => handleDeleteCustom(e, cfg.id)}
+                      title={isEn ? "Remove this calculation" : "移除此自訂計算"}
+                    >
+                      ✕
+                    </button>
                   </div>
                 ))
               )}

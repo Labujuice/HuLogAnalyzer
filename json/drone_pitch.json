@@ -1,6 +1,6 @@
 {
   "id": "drone-euler-pitch",
-  "name": "無人機 Pitch 俯仰角 (度)",
+  "name": "Drone Pitch Angle (deg)",
   "targetChart": {
     "title": "Pitch Angle",
     "yLabel": "Pitch (deg)",

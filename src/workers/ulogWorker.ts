@@ -460,18 +460,22 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
 
         const result = executeCustomCalculation(req.config, getRawData);
 
+        // 為了防範 detaching parser 內部的 TypedArray，我們在此複製一份 TypedArray 後再進行傳輸
+        const timestampsCopy = result.timestamps.slice();
+        const valuesCopy = result.values.slice();
+
         const resp: WorkerResponse = {
           type: 'CUSTOM_CALC_COMPLETE',
           requestId: req.requestId,
           outputId: req.config.id,
-          timestamps: result.timestamps,
-          values: result.values
+          timestamps: timestampsCopy,
+          values: valuesCopy
         };
 
         // Zero-copy transfer
         (self as unknown as Worker).postMessage(resp, [
-          result.timestamps.buffer as ArrayBuffer,
-          result.values.buffer as ArrayBuffer
+          timestampsCopy.buffer as ArrayBuffer,
+          valuesCopy.buffer as ArrayBuffer
         ]);
       } catch (err) {
         self.postMessage({ type: 'CALC_ERROR', requestId: req.requestId, message: err instanceof Error ? err.message : String(err) });
