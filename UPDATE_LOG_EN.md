@@ -4,6 +4,19 @@ This file is used to document and manage update items prior to every Merge Reque
 
 ---
 
+## [Branch: 0828_custom_calc_euler_angles] (Cut from main branch)
+* **Date**: 2026-08-28
+* **Status**: Completed / Pending Merge (Bump version to `0.2.3`)
+* **Changelog Details**:
+  * **⚙️ Custom Calc Multi-Item Cache Isolation & Auto-Interpolation (ChartPanel)**:
+    * **Namespace Isolation & Cache Overwriting Fix**: Changed the custom calculation TopicName and its global `topicCache` key from the static `custom_calc` to a configuration-specific `custom_calc_${config.id}`. This resolves a critical bug where plotting a second custom calculation completely overwrote the cache of the first one, causing previously rendered curves to disappear.
+    * **Automatic Time Series Interpolation**: When multiple custom calculation curves are dragged onto the same chart, the frontend automatically performs linear interpolation to align the different timelines, supporting concurrent rendering of multiple custom curves.
+  * **⚡ Web Worker ArrayBuffer Detaching Protection (ulogWorker)**:
+    * **Prevent Detaching Parser Buffers**: Slices (`.slice()`) the output timestamps and values arrays in the Worker's `RUN_CUSTOM_CALC` handler before transferring them. This prevents the Zero-copy mechanism from detaching and clearing the original `timestamps` buffer of the ULog topic within the parser, ensuring subsequent calculations always resolve successfully.
+  * **🛸 Pre-loaded Attitude Presets & Custom Calc Deletion UI (customCalcRegistry & QuickPlotPresets)**:
+    * **Pre-loaded Euler Angle Presets**: Pre-imports and registers four attitude angle JSON configurations (Roll, Pitch, Yaw [-180, 180], Yaw [0, 360]) in the registry constructor, displaying them instantly at startup.
+    * **Delete Custom Preset UI**: Added a delete button (`✕`) next to custom calculation items in the sidebar. Visible on hover, clicking the button invokes `customCalcRegistry.remove(id)` with `stopPropagation` to prevent drag/drop triggers, allowing users to manage their imported lists easily.
+
 ## [Branch: 0819_fix_large_log] (Cut from main branch at commit `204084a`)
 * **Date**: 2026-08-19
 * **Status**: Completed / Pending Merge (Bump version to `0.2.2`)
