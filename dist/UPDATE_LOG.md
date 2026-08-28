@@ -4,6 +4,19 @@
 
 ---
 
+## [Branch: 0828_custom_calc_euler_angles] (基於 `main` 分支切出)
+* **日期**：2026-08-28
+* **更新狀態**：已完成開發 / 準備合併 (Bump version to `0.2.3`)
+* **更新項目明細**：
+  * **⚙️ 自訂運算多項目快取隔離與時序自動插值 (ChartPanel)**：
+    * **命名空間隔離與快取防覆蓋**：將自訂計算的主題名稱 (TopicName) 及全域 `topicCache` 鍵值，由固定的 `custom_calc` 改為依設定 ID 區分的 `custom_calc_${config.id}`。這解決了載入或拖曳第二個自訂運算項目時，會完全覆蓋第一個自訂項目快取資料，導致先前繪製好的折線圖消失的嚴重缺陷。
+    * **自動時序插值對齊**：多個自訂計算項目若被拖入同一個圖表，系統會自動在前端將不同計算線條線性插值對齊到主系列的時間軸上，完美支援多個自訂角度曲線重疊對位分析。
+  * **⚡背景 Web Worker 資料緩衝區轉移防護 (ulogWorker)**：
+    * **避免原始陣列 Detached**：在 Worker 的 `RUN_CUSTOM_CALC` 計算完成後，先對輸出的時間戳記 (timestamps) 與數值 (values) 進行 `.slice()` 複製。這防止了 Zero-copy 機制轉移 ArrayBuffer 所有權時，直接抽離 (detach) 並清空 ULogParser 內部原始主題的時間戳記資料緩衝區，確保後續的所有自訂或內建計算均能正常運作。
+  * **🛸 自訂計算設定預載入與移除功能 (customCalcRegistry & QuickPlotPresets)**：
+    * **預先載入尤拉角設定檔**：在自訂註冊表初始化時，預設自動匯入四個英文版尤拉角設定檔（Roll、Pitch、Yaw [-180, 180]、Yaw [0, 360]），且元件啟動時直接讀取註冊列表，使用者點開即用，無需手動上傳。
+    * **刪除匯入的自訂 JSON 功能**：側邊欄自訂項目列表新增懸停顯示的 `✕` 移除按鈕，點擊可直接呼叫 `customCalcRegistry.remove(id)`，並以 `stopPropagation` 防範事件穿透，提供使用者友好的自訂清單整理介面。
+
 ## [Branch: 0819_fix_large_log] (基於 `main` 分支 `204084a` 節點切出)
 * **日期**：2026-08-19
 * **更新狀態**：已完成開發 / 準備合併 (Bump version to `0.2.2`)

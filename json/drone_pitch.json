@@ -1,0 +1,22 @@
+{
+  "id": "drone-euler-pitch",
+  "name": "Drone Pitch Angle (deg)",
+  "targetChart": {
+    "title": "Pitch Angle",
+    "yLabel": "Pitch (deg)",
+    "color": "#ef4444"
+  },
+  "operations": [
+    {
+      "type": "expression",
+      "formula": "atan2(2 * (q0 * q2 - q3 * q1), sqrt(abs(1 - (2 * (q0 * q2 - q3 * q1)) * (2 * (q0 * q2 - q3 * q1))))) * 57.2957795",
+      "variables": {
+        "q0": "vehicle_attitude.q[0]",
+        "q1": "vehicle_attitude.q[1]",
+        "q2": "vehicle_attitude.q[2]",
+        "q3": "vehicle_attitude.q[3]"
+      },
+      "output": "pitch_deg"
+    }
+  ]
+}

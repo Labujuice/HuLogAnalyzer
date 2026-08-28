@@ -471,7 +471,7 @@ export function ChartPanel({
           if (config) {
             // 先加進線條清單中
             const series: ChartSeries = {
-              topicName: 'custom_calc',
+              topicName: `custom_calc_${config.id}`,
               multiId: 0,
               fieldName: config.id,
               label: config.name,
@@ -484,9 +484,9 @@ export function ChartPanel({
               const res = await getWorkerBridge().runCustomCalc(config);
               dispatch({
                 type: 'TOPIC_DATA_LOADED',
-                key: 'custom_calc:0',
+                key: `custom_calc_${config.id}:0`,
                 data: {
-                  topicName: 'custom_calc',
+                  topicName: `custom_calc_${config.id}`,
                   multiId: 0,
                   timestamps: res.timestamps,
                   fields: { [config.id]: res.values },
